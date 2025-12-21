@@ -1,0 +1,54 @@
+/// API Constants for Frusette Customer App
+class ApiConstants {
+  // Base URL
+  static const String baseUrl = 'https://frusette-backend-ym62.onrender.com';
+
+  // API Version
+  static const String apiVersion = '/v1';
+
+  // Full Base URL with version
+  static String get apiBaseUrl => '$baseUrl$apiVersion';
+
+  // Auth Endpoints
+  static const String login = '/auth/login';
+  static const String register = '/auth/register';
+  static const String logout = '/auth/logout';
+  static const String refreshToken = '/auth/refresh';
+
+  // User Endpoints
+  static const String userProfile = '/users/profile';
+  static const String updateProfile = '/users/profile';
+
+  // Subscription Endpoints
+  static const String subscriptions = '/subscriptions';
+  static const String activeSubscription = '/subscriptions/active';
+  static const String subscriptionManage = '/customer/subscription/manage';
+  static const String subscriptionPause = '/customer/subscription/pause';
+  static const String subscriptionResume = '/customer/subscription/resume';
+
+  // Delivery Endpoints
+  static const String deliveries = '/deliveries';
+  static const String addresses = '/addresses';
+
+  // Order Endpoints
+  static const String orders = '/orders';
+  static const String orderTracking = '/orders/tracking';
+
+  // Helper method to get full URL
+  static String getUrl(String endpoint) => '$apiBaseUrl$endpoint';
+
+  // Request timeout duration
+  static const Duration requestTimeout = Duration(seconds: 30);
+
+  // Headers
+  static Map<String, String> get defaultHeaders => {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+
+  static Map<String, String> authHeaders(String token) => {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'Authorization': 'Bearer $token',
+  };
+}
