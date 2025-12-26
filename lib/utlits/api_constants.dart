@@ -29,6 +29,7 @@ class ApiConstants {
   // Delivery Endpoints
   static const String deliveries = '/deliveries';
   static const String addresses = '/addresses';
+  static const String customerAddresses = '/customer/addresses';
 
   // Order Endpoints
   static const String orders = '/orders';

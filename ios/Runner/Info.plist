@@ -45,5 +45,12 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Location permissions -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Frusette needs access to your location to show nearby delivery addresses and help you pick a location on the map.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Frusette needs access to your location to provide accurate delivery services.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Frusette needs access to your location to show nearby delivery addresses and help you pick a location on the map.</string>
 </dict>
 </plist>

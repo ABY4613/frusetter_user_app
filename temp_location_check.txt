@@ -1,0 +1,677 @@
+﻿import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+
+/// Location Picker Screen - Allows users to pick a location on the map
+class LocationPickerScreen extends StatefulWidget {
+  final LatLng? initialLocation;
+  final String? initialAddress;
+
+  const LocationPickerScreen({
+    super.key,
+    this.initialLocation,
+    this.initialAddress,
+  });
+
+  @override
+  State<LocationPickerScreen> createState() => _LocationPickerScreenState();
+}
+
+class _LocationPickerScreenState extends State<LocationPickerScreen>
+    with SingleTickerProviderStateMixin {
+  // App colors
+  static const Color primaryGreen = Color(0xFF8AC53D);
+  static const Color lightGreen = Color(0xFFE8F5D9);
+  static const Color backgroundColor = Colors.white;
+  static const Color textPrimary = Color(0xFF1F2937);
+  static const Color textSecondary = Color(0xFF6B7280);
+  static const Color cardBorder = Color(0xFFE5E7EB);
+
+  late MapController _mapController;
+  late AnimationController _animationController;
+  late Animation<double> _markerAnimation;
+
+  // Default to Kerala (Kochi) coordinates as fallback
+  LatLng _selectedLocation = const LatLng(9.9312, 76.2673);
+  double _currentZoom = 15.0;
+  bool _isDragging = false;
+  bool _isLoadingLocation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
+    _markerAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.elasticOut),
+    );
+
+    if (widget.initialLocation != null) {
+      _selectedLocation = widget.initialLocation!;
+    } else {
+      // Start loading state immediately
+      _isLoadingLocation = true;
+      // Wait for map to be ready, then get current location
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _getCurrentLocationOnInit();
+      });
+    }
+
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      body: Stack(
+        children: [
+          // Map
+          _buildMap(),
+
+          // Center marker (always visible at center)
+          _buildCenterMarker(),
+
+          // Top Bar
+          _buildTopBar(),
+
+          // Bottom Info Card
+          _buildBottomCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMap() {
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: _selectedLocation,
+        initialZoom: _currentZoom,
+        minZoom: 3,
+        maxZoom: 18,
+        onPositionChanged: (position, hasGesture) {
+          if (hasGesture && position.center != null) {
+            setState(() {
+              _selectedLocation = position.center!;
+              _currentZoom = position.zoom ?? _currentZoom;
+              _isDragging = true;
+            });
+          }
+        },
+        onPointerUp: (event, point) {
+          if (_isDragging) {
+            setState(() {
+              _isDragging = false;
+            });
+            // Bounce animation when user stops dragging
+            _animationController.reset();
+            _animationController.forward();
+          }
+        },
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.frusette.customer',
+          maxZoom: 19,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCenterMarker() {
+    return Center(
+      child: MarkerAnimationBuilder(
+        animation: _markerAnimation,
+        builder: (context, child) {
+          return Transform.translate(
+            offset: Offset(0, _isDragging ? -20 : -10 * _markerAnimation.value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Marker icon
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: primaryGreen,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: primaryGreen.withOpacity(0.4),
+                        blurRadius: _isDragging ? 20 : 12,
+                        offset: const Offset(0, 4),
+                        spreadRadius: _isDragging ? 4 : 0,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.location_on,
+                    color: Colors.white,
+                    size: _isDragging ? 32 : 28,
+                  ),
+                ),
+                // Marker pin
+                Container(
+                  width: 3,
+                  height: _isDragging ? 30 : 20,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [primaryGreen, primaryGreen.withOpacity(0.3)],
+                    ),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                // Shadow circle
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: _isDragging ? 24 : 16,
+                  height: _isDragging ? 12 : 8,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(_isDragging ? 0.2 : 0.3),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // Back button
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back, color: textPrimary),
+              ),
+            ),
+            const SizedBox(width: 16),
+            // Title
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.search, color: textSecondary, size: 20),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Move map to select location',
+                        style: TextStyle(color: textSecondary, fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            // Current location button
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: _isLoadingLocation
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: primaryGreen,
+                        ),
+                      ),
+                    )
+                  : IconButton(
+                      onPressed: _goToCurrentLocation,
+                      icon: const Icon(Icons.my_location, color: primaryGreen),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomCard() {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: cardBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Selected location header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: lightGreen,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.location_on,
+                      color: primaryGreen,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Selected Location',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Drag the map to adjust pin position',
+                          style: TextStyle(fontSize: 13, color: textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Coordinates display
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cardBorder),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'LATITUDE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: textSecondary,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _selectedLocation.latitude.toStringAsFixed(6),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(width: 1, height: 40, color: cardBorder),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'LONGITUDE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: textSecondary,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _selectedLocation.longitude.toStringAsFixed(6),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Confirm button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context, _selectedLocation);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryGreen,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.check_circle, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Confirm Location',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Get current location on screen init
+  Future<void> _getCurrentLocationOnInit() async {
+    try {
+      debugPrint('LocationPicker: Getting current location...');
+      final position = await _determinePosition();
+      debugPrint(
+        'LocationPicker: Got position - Lat: ${position.latitude}, Lng: ${position.longitude}',
+      );
+
+      if (mounted) {
+        final currentLocation = LatLng(position.latitude, position.longitude);
+
+        // Wait a bit for map controller to be fully ready
+        await Future.delayed(const Duration(milliseconds: 300));
+
+        if (mounted) {
+          _mapController.move(currentLocation, 16);
+          setState(() {
+            _selectedLocation = currentLocation;
+            _isLoadingLocation = false;
+            _initialLocationFetched = true;
+          });
+          debugPrint('LocationPicker: Map moved to current location');
+        }
+      }
+    } catch (e) {
+      debugPrint('LocationPicker: Could not get initial location: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingLocation = false;
+        });
+        // Show error snackbar so user knows to tap location button
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Tap the location button to get your current location',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.orange[600],
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Go to current location when button is pressed
+  Future<void> _goToCurrentLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+    });
+
+    try {
+      final position = await _determinePosition();
+      final currentLocation = LatLng(position.latitude, position.longitude);
+
+      _mapController.move(currentLocation, 16);
+      setState(() {
+        _selectedLocation = currentLocation;
+        _isLoadingLocation = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Moved to your current location'),
+              ],
+            ),
+            backgroundColor: primaryGreen,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingLocation = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text(e.toString())),
+              ],
+            ),
+            backgroundColor: Colors.red[400],
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Determine the current position with permission handling
+  Future<Position> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Test if location services are enabled
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('Location services are disabled. Please enable GPS.');
+    }
+
+    // Check permission
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception(
+          'Location permission denied. Please allow location access.',
+        );
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception(
+        'Location permission permanently denied. Please enable in settings.',
+      );
+    }
+
+    // Get current position with high accuracy
+    // Using best accuracy and longer timeout for better GPS fix
+    return await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.best,
+      timeLimit: const Duration(seconds: 15),
+    );
+  }
+}
+
+/// Animated builder helper widget for the marker animation
+class MarkerAnimationBuilder extends StatelessWidget {
+  final Animation<double> animation;
+  final Widget Function(BuildContext context, Widget? child) builder;
+  final Widget? child;
+
+  const MarkerAnimationBuilder({
+    super.key,
+    required this.animation,
+    required this.builder,
+    this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MarkerAnimatedWidget(
+      listenable: animation,
+      builder: builder,
+      child: child,
+    );
+  }
+}
+
+/// Internal animated widget for marker animation
+class MarkerAnimatedWidget extends AnimatedWidget {
+  final Widget Function(BuildContext context, Widget? child) builder;
+  final Widget? child;
+
+  const MarkerAnimatedWidget({
+    super.key,
+    required super.listenable,
+    required this.builder,
+    this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return builder(context, child);
+  }
+}
+
