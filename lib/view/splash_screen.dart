@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:frusette_customer_app/utlits/app_color.dart';
 import 'package:frusette_customer_app/controller/auth_controller.dart';
 import 'login_screen.dart';
-import 'subscription_dashboard.dart';
+import 'main_layout.dart';
 
 class SplashScreen extends StatefulWidget {
   /// The screen to navigate to after the splash animation completes
@@ -111,7 +111,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (isLoggedIn) {
       // User is logged in, go to dashboard
       debugPrint('SplashScreen: Navigating to Dashboard');
-      _navigateToScreen(const SubscriptionDashboard());
+      _navigateToScreen(const MainLayout());
     } else {
       // User not logged in, go to login screen
       debugPrint('SplashScreen: Navigating to Login');

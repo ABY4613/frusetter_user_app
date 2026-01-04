@@ -11,14 +11,35 @@ class SubscriptionController extends ChangeNotifier {
   String? _errorMessage;
   bool _hasData = false;
 
-  // Getters
+  // Getters for main data objects
   SubscriptionManageData? get subscriptionData => _subscriptionData;
+  SubscriptionUser? get user => _subscriptionData?.user;
+  SubscriptionPlan? get plan => _subscriptionData?.plan;
   SubscriptionDetails? get subscription => _subscriptionData?.subscription;
   SubscriptionProjection? get projection =>
       _subscriptionData?.subscriptionProjection;
+  CutOffInfo? get cutOffInfo => _subscriptionData?.cutOffInfo;
+
+  // State getters
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get hasData => _hasData;
+
+  // User convenience getters
+  String get userName => user?.fullName ?? '';
+  String get userEmail => user?.email ?? '';
+  String get userPhone => user?.phone ?? '';
+  String get userFirstName => user?.firstName ?? '';
+
+  // Plan convenience getters
+  String get planName => plan?.name ?? 'Premium Plan';
+  String get planDescription => plan?.description ?? '';
+  String get planType => plan?.planType ?? 'weekly';
+  double get planPrice => plan?.price ?? 0.0;
+  String get formattedPlanPrice => plan?.formattedPrice ?? '₹0';
+  int get planMealsPerDay => plan?.mealsPerDay ?? 0;
+  int get planDurationDays => plan?.durationDays ?? 0;
+  String get planMealTypes => plan?.mealTypesDisplay ?? '';
 
   /// Fetch subscription management data from API
   Future<bool> fetchSubscriptionData(String accessToken) async {
@@ -50,7 +71,10 @@ class SubscriptionController extends ChangeNotifier {
           _isLoading = false;
           debugPrint('SubscriptionController: Data fetched successfully');
           debugPrint(
-            'SubscriptionController: Plan: ${_subscriptionData?.subscription.planName}',
+            'SubscriptionController: Plan: ${_subscriptionData?.plan?.name ?? "N/A"}',
+          );
+          debugPrint(
+            'SubscriptionController: Subscription ID: ${_subscriptionData?.subscription.id}',
           );
           notifyListeners();
           return true;
@@ -77,12 +101,14 @@ class SubscriptionController extends ChangeNotifier {
     }
   }
 
-  /// Pause subscription plan
-  /// [pauseDays] - Number of days to pause the subscription
+  /// Pause subscription for a single day with specific meal
+  /// [date] - Date to pause (YYYY-MM-DD format)
+  /// [mealType] - Type of meal to pause: 'breakfast', 'lunch', or 'dinner'
   /// [reason] - Reason for pausing (optional)
-  Future<bool> pausePlan(
+  Future<bool> pauseSingleDay(
     String accessToken, {
-    required int pauseDays,
+    required String date,
+    required String mealType,
     String? reason,
   }) async {
     _isLoading = true;
@@ -91,12 +117,90 @@ class SubscriptionController extends ChangeNotifier {
 
     try {
       final url = ApiConstants.getUrl(ApiConstants.subscriptionPause);
-      debugPrint('SubscriptionController: Pausing plan at $url');
+      debugPrint('SubscriptionController: Pausing single day at $url');
       debugPrint(
-        'SubscriptionController: pause_days: $pauseDays, reason: $reason',
+        'SubscriptionController: date: $date, meal_type: $mealType, reason: $reason',
       );
 
-      final body = <String, dynamic>{'pause_days': pauseDays};
+      final body = <String, dynamic>{
+        'pause_type': 'single',
+        'date': date,
+        'meal_type': mealType,
+      };
+
+      if (reason != null && reason.isNotEmpty) {
+        body['reason'] = reason;
+      }
+
+      final response = await http
+          .post(
+            Uri.parse(url),
+            headers: ApiConstants.authHeaders(accessToken),
+            body: jsonEncode(body),
+          )
+          .timeout(ApiConstants.requestTimeout);
+
+      debugPrint(
+        'SubscriptionController: Pause response status: ${response.statusCode}',
+      );
+      debugPrint(
+        'SubscriptionController: Pause response body: ${response.body}',
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['success'] == true) {
+          // Refresh subscription data after pausing
+          await fetchSubscriptionData(accessToken);
+          return true;
+        } else {
+          _errorMessage = responseData['message'] ?? 'Failed to pause plan';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+      }
+
+      final responseData = jsonDecode(response.body);
+      _errorMessage = responseData['message'] ?? 'Failed to pause plan';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      debugPrint('SubscriptionController: Error pausing plan: $e');
+      _errorMessage = 'Network error. Please try again.';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Pause subscription for a date range
+  /// [fromDate] - Start date of pause (YYYY-MM-DD format)
+  /// [toDate] - End date of pause (YYYY-MM-DD format)
+  /// [reason] - Reason for pausing (optional)
+  Future<bool> pauseDateRange(
+    String accessToken, {
+    required String fromDate,
+    required String toDate,
+    String? reason,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final url = ApiConstants.getUrl(ApiConstants.subscriptionPause);
+      debugPrint('SubscriptionController: Pausing date range at $url');
+      debugPrint(
+        'SubscriptionController: from_date: $fromDate, to_date: $toDate, reason: $reason',
+      );
+
+      final body = <String, dynamic>{
+        'pause_type': 'dateRange',
+        'from_date': fromDate,
+        'to_date': toDate,
+      };
 
       if (reason != null && reason.isNotEmpty) {
         body['reason'] = reason;

@@ -35,6 +35,12 @@ class ApiConstants {
   static const String orders = '/orders';
   static const String orderTracking = '/orders/tracking';
 
+  // Payment Endpoints
+  static const String paymentStatus = '/customer/payment-status';
+
+  // Addon Endpoints
+  static const String addons = '/customer/addons';
+
   // Helper method to get full URL
   static String getUrl(String endpoint) => '$apiBaseUrl$endpoint';
 

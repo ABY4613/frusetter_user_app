@@ -1,17 +1,23 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../controller/auth_controller.dart';
 import '../controller/subscription_controller.dart';
+import '../controller/payment_status_controller.dart';
+import '../model/subscription_model.dart';
 import 'login_screen.dart';
 import 'delivery_adress_management.dart';
 import 'live_order_track.dart';
 import 'meals_feedback.dart';
 import 'notification_screen.dart';
 import 'help_desk_screen.dart';
+import 'addons_list_screen.dart';
 
 class SubscriptionDashboard extends StatefulWidget {
-  const SubscriptionDashboard({super.key});
+  final bool showAppBar;
+
+  const SubscriptionDashboard({super.key, this.showAppBar = true});
 
   @override
   State<SubscriptionDashboard> createState() => _SubscriptionDashboardState();
@@ -32,56 +38,9 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
-  // Calendar state
-  DateTime _currentMonth = DateTime(2023, 10); // October 2023
-  final DateTime _selectedDate = DateTime(2023, 10, 5);
-
-  // Subscription state - now fetched from API
-  // These are fallback values used when API data is not available
-  String _planName = 'Loading...';
-  String _subscriptionId = '';
-  String _subscriptionStatus = 'ACTIVE';
-  int _mealsPerDay = 0;
-  int _daysRemaining = 0;
-  int _totalMeals = 0;
-
-  // Delivery dates (for calendar marking)
-  final Set<int> _deliveryDates = {
-    5,
-    6,
-    8,
-    9,
-    10,
-    11,
-    12,
-    13,
-    14,
-    15,
-    16,
-    17,
-    18,
-    19,
-    20,
-    22,
-    23,
-    24,
-    25,
-    26,
-    27,
-    28,
-    29,
-    30,
-  };
-  final Set<int> _pausedDates = {7, 21};
-
-  // End dates
-  String _currentEndDate = '';
-  String _newEndDate = '';
-  int _pausedDays = 0;
-
-  // Action permissions from API
-  bool _canPausePlan = false;
-  bool _canResumePlan = false;
+  // Auto-refresh timer
+  Timer? _refreshTimer;
+  static const Duration _refreshInterval = Duration(seconds: 300);
 
   @override
   void initState() {
@@ -98,6 +57,17 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
     // Fetch subscription data after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchSubscriptionData();
+      _startAutoRefresh();
+    });
+  }
+
+  /// Start auto-refresh timer
+  void _startAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (mounted) {
+        _fetchSubscriptionData();
+      }
     });
   }
 
@@ -105,100 +75,1213 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
   Future<void> _fetchSubscriptionData() async {
     final authController = context.read<AuthController>();
     final subscriptionController = context.read<SubscriptionController>();
+    final paymentStatusController = context.read<PaymentStatusController>();
 
     if (authController.accessToken != null) {
-      final success = await subscriptionController.fetchSubscriptionData(
+      // Fetch subscription data
+      // Fetch subscription data
+      await subscriptionController.fetchSubscriptionData(
         authController.accessToken!,
       );
 
-      if (success && mounted) {
-        _updateStateFromController(subscriptionController);
-      }
-    }
-  }
-
-  /// Update local state from controller data
-  void _updateStateFromController(SubscriptionController controller) {
-    final subscription = controller.subscription;
-    final projection = controller.projection;
-
-    if (subscription != null && mounted) {
-      setState(() {
-        _planName = subscription.planName;
-        _subscriptionId = subscription.id;
-        _subscriptionStatus = subscription.status;
-        _mealsPerDay = subscription.mealInfo.mealsPerDay;
-        _daysRemaining = subscription.mealInfo.daysRemaining;
-        _totalMeals = subscription.mealInfo.totalMeals;
-        _canPausePlan = subscription.actions.pausePlan;
-        _canResumePlan = subscription.actions.resumePlan;
-      });
-    }
-
-    if (projection != null && mounted) {
-      setState(() {
-        _currentEndDate = _formatDateFromString(projection.currentEndDate);
-        _newEndDate = _formatDateFromString(projection.newEndDate);
-        _pausedDays = projection.pauseInfo.pausedDays;
-      });
-    }
-  }
-
-  /// Format date string from API (YYYY-MM-DD) to display format
-  String _formatDateFromString(String dateString) {
-    if (dateString.isEmpty) return '';
-    try {
-      final date = DateTime.parse(dateString);
-      return _formatDate(date);
-    } catch (e) {
-      return dateString;
+      // Fetch payment status
+      await paymentStatusController.fetchPaymentStatus(
+        authController.accessToken!,
+      );
     }
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    _carouselTimer?.cancel();
     _animationController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final subscriptionController = context.watch<SubscriptionController>();
+    final paymentStatusController = context.watch<PaymentStatusController>();
+
     return Scaffold(
       backgroundColor: backgroundColor,
-      appBar: _buildAppBar(),
-      drawer: _buildDrawer(),
+      appBar: widget.showAppBar ? _buildAppBar() : null,
+      drawer: widget.showAppBar ? _buildDrawer() : null,
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 20),
-                      // Subscription Info Card
-                      _buildSubscriptionCard(),
-                      const SizedBox(height: 16),
-                      // Warning Banner
-                      _buildWarningBanner(), // Delivery Schedule
-                      const SizedBox(height: 24),
-                      // Subscription Projection
-                      _buildSubscriptionProjection(),
+              child: RefreshIndicator(
+                onRefresh: _fetchSubscriptionData,
+                color: primaryGreen,
+                backgroundColor: Colors.white,
+                child:
+                    subscriptionController.isLoading &&
+                        !subscriptionController.hasData
+                    ? const Center(
+                        child: CircularProgressIndicator(color: primaryGreen),
+                      )
+                    : SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 16),
 
-                      const SizedBox(height: 100),
-                    ],
-                  ),
+                              if (subscriptionController.user != null)
+                                _buildUserGreeting(subscriptionController),
+
+                              const SizedBox(height: 16),
+
+                              // Add-ons Banner
+                              _buildAddOnsBanner(),
+
+                              const SizedBox(height: 16),
+
+                              // Payment Reminder Banner
+                              if (paymentStatusController.paymentRequired)
+                                _buildPaymentReminderBanner(
+                                  paymentStatusController,
+                                ),
+
+                              // Main Subscription Card
+                              _buildMainSubscriptionCard(
+                                subscriptionController,
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              // Meal Stats Row
+                              _buildMealStatsRow(subscriptionController),
+
+                              const SizedBox(height: 16),
+
+                              // Dates Card
+                              _buildDatesCard(subscriptionController),
+
+                              const SizedBox(height: 16),
+
+                              // Subscription Projection
+                              _buildSubscriptionProjectionCard(
+                                subscriptionController,
+                              ),
+
+                              const SizedBox(height: 100),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build user greeting section
+  Widget _buildUserGreeting(SubscriptionController controller) {
+    final user = controller.user;
+    if (user == null || !user.hasData) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [primaryGreen, primaryGreen.withOpacity(0.8)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                user.firstName.isNotEmpty
+                    ? user.firstName[0].toUpperCase()
+                    : 'U',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
               ),
             ),
-            // Update Button
-            _buildUpdateButton(),
-          ],
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hello, ${user.firstName}!',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                if (user.email.isNotEmpty)
+                  Text(
+                    user.email,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withOpacity(0.9),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (user.phone.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.phone, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text(
+                    user.phone.length > 10
+                        ? '...${user.phone.substring(user.phone.length - 10)}'
+                        : user.phone,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Build add-ons promotional carousel
+  Widget _buildAddOnsBanner() {
+    return SizedBox(
+      height: 160,
+      child: PageView.builder(
+        controller: PageController(viewportFraction: 0.92),
+        onPageChanged: (index) {
+          setState(() {
+            _currentCarouselPage = index % 3;
+          });
+        },
+        itemBuilder: (context, index) {
+          final carouselIndex = index % 3;
+          return _buildCarouselItem(carouselIndex);
+        },
+      ),
+    );
+  }
+
+  int _currentCarouselPage = 0;
+  Timer? _carouselTimer;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Start auto-scroll carousel
+    _carouselTimer?.cancel();
+    _carouselTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      if (mounted) {
+        setState(() {
+          _currentCarouselPage = (_currentCarouselPage + 1) % 3;
+        });
+      }
+    });
+  }
+
+  Widget _buildCarouselItem(int index) {
+    final carouselData = [
+      {
+        'title': 'Protein Power',
+        'subtitle': 'Boost your energy with smoothies',
+        'image':
+            'https://images.unsplash.com/photo-1505252585461-04db1eb84625?w=800&q=80',
+      },
+      {
+        'title': 'Healthy Snacks',
+        'subtitle': 'Nutritious bites for any time',
+        'image':
+            'https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=800&q=80',
+      },
+      {
+        'title': 'Fresh Juices',
+        'subtitle': 'Natural refreshment daily',
+        'image':
+            'https://images.unsplash.com/photo-1622597467836-f3285f2131b8?w=800&q=80',
+      },
+    ];
+
+    final data = carouselData[index];
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const AddOnsListScreen()),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(right: 12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            children: [
+              // Background Image
+              Positioned.fill(
+                child: Image.network(
+                  data['image'] as String,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(color: const Color(0xFF8AC53D));
+                  },
+                ),
+              ),
+              // Decorative circles
+              Positioned(
+                right: -30,
+                top: -30,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(0.1),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 40,
+                bottom: -20,
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(0.1),
+                  ),
+                ),
+              ),
+              // Content
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Icon
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.shopping_bag_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Title
+                    Text(
+                      data['title'] as String,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Subtitle
+                    Text(
+                      data['subtitle'] as String,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withOpacity(0.95),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Shop Now Button
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Shop Now',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: primaryGreen,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.arrow_forward_rounded,
+                            color: primaryGreen,
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Page Indicator
+              Positioned(
+                bottom: 16,
+                right: 24,
+                child: Row(
+                  children: List.generate(
+                    3,
+                    (dotIndex) => Container(
+                      margin: const EdgeInsets.only(left: 6),
+                      width: dotIndex == index ? 24 : 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: dotIndex == index
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  /// Build payment reminder banner
+  Widget _buildPaymentReminderBanner(PaymentStatusController controller) {
+    const Color red = Color(0xFFEF4444);
+    const Color lightRed = Color(0xFFFEE2E2);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: lightRed,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: red.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: red.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: red,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.warning_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Payment Required',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: textPrimary,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: red,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            controller.paymentStatusText.toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Your subscription payment for ${controller.planName} is pending. Please pay to continue service.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Amount Row
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Amount Due',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Text(
+                  controller.paymentStatus?.formattedBalance ?? '₹0',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: red,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build main subscription card with plan details
+  Widget _buildMainSubscriptionCard(SubscriptionController controller) {
+    final plan = controller.plan;
+    final subscription = controller.subscription;
+
+    if (subscription == null) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: cardBorder),
+        ),
+        child: const Center(
+          child: Text(
+            'No subscription data available',
+            style: TextStyle(color: textSecondary),
+          ),
+        ),
+      );
+    }
+
+    final bool isActive = subscription.isActive;
+    final bool isPaused = subscription.isPaused;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Plan info row
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Status badges row
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        // Subscription status badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? primaryGreen
+                                : isPaused
+                                ? warningText
+                                : textSecondary,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            subscription.status.toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                        // Plan type badge (if plan exists)
+                        if (plan != null && plan.planType.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: lightGreen,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              plan.planType.toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: primaryGreen,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        // Payment status badge
+                        if (subscription.paymentStatus.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: subscription.isPaymentPending
+                                  ? const Color(0xFFFEE2E2)
+                                  : lightGreen,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              subscription.paymentStatus.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: subscription.isPaymentPending
+                                    ? const Color(0xFFEF4444)
+                                    : primaryGreen,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // Plan name
+                    Text(
+                      plan?.name ?? 'Premium Plan',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: textPrimary,
+                      ),
+                    ),
+                    // Plan description (if exists)
+                    if (plan != null && plan.description.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        plan.description,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: textSecondary,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    // Plan details row
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        if (plan != null && plan.mealsPerDay > 0)
+                          _buildDetailChip(
+                            Icons.restaurant_menu,
+                            '${plan.mealsPerDay} Meals/Day',
+                          ),
+                        if (plan != null && plan.durationDays > 0)
+                          _buildDetailChip(
+                            Icons.calendar_today,
+                            '${plan.durationDays} Days',
+                          ),
+                        if (subscription.mealInfo.daysRemaining > 0)
+                          _buildDetailChip(
+                            Icons.timer,
+                            '${subscription.mealInfo.daysRemaining} Left',
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Price tag
+              if (plan != null && plan.price > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: lightGreen,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        plan.formattedPrice,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: primaryGreen,
+                        ),
+                      ),
+                      Text(
+                        '/${plan.planType}',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          // Meal types (if exists)
+          if (plan != null && plan.mealTypes.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.lunch_dining,
+                    size: 16,
+                    color: textSecondary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Includes: ${plan.mealTypesDisplay}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          // Action buttons
+          _buildActionButtons(subscription),
+        ],
+      ),
+    );
+  }
+
+  /// Build detail chip widget
+  Widget _buildDetailChip(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: textSecondary),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: const TextStyle(
+            fontSize: 12,
+            color: textSecondary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Build action buttons for subscription
+  Widget _buildActionButtons(SubscriptionDetails subscription) {
+    final bool canPause =
+        subscription.actions.pausePlan || subscription.isActive;
+    final bool canResume =
+        subscription.actions.resumePlan || subscription.isPaused;
+
+    return Row(
+      children: [
+        Expanded(
+          child: canPause && subscription.isActive
+              ? OutlinedButton.icon(
+                  onPressed: _showPausePlanDialog,
+                  icon: const Icon(Icons.pause_circle_outline, size: 18),
+                  label: const Text('Pause Plan'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: textPrimary,
+                    side: const BorderSide(color: cardBorder),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                )
+              : OutlinedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.block, size: 18),
+                  label: const Text('No Actions'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: textSecondary,
+                    side: const BorderSide(color: cardBorder),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// Build meal stats row
+  Widget _buildMealStatsRow(SubscriptionController controller) {
+    final subscription = controller.subscription;
+    final projection = controller.projection;
+
+    if (subscription == null) return const SizedBox.shrink();
+
+    final mealInfo = subscription.mealInfo;
+    final pauseInfo = projection?.pauseInfo;
+
+    return Row(
+      children: [
+        // Total Meals
+        Expanded(
+          child: _buildStatCard(
+            icon: Icons.restaurant_rounded,
+            iconColor: primaryGreen,
+            label: 'Total Meals',
+            value: '${mealInfo.totalMeals}',
+            backgroundColor: lightGreen,
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Days Remaining
+        Expanded(
+          child: _buildStatCard(
+            icon: Icons.calendar_today_rounded,
+            iconColor: const Color(0xFF3B82F6),
+            label: 'Days Left',
+            value: '${mealInfo.daysRemaining}',
+            backgroundColor: const Color(0xFFEFF6FF),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Paused Days (if any)
+        Expanded(
+          child: _buildStatCard(
+            icon: Icons.pause_circle_rounded,
+            iconColor: warningText,
+            label: 'Paused',
+            value: pauseInfo != null && pauseInfo.pausedDays > 0
+                ? '${pauseInfo.pausedDays}d'
+                : '0d',
+            subtitle: pauseInfo != null && pauseInfo.pausedMealsCount > 0
+                ? '${pauseInfo.pausedMealsCount} meals'
+                : null,
+            backgroundColor: warningYellow,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Build stat card widget
+  Widget _buildStatCard({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+    String? subtitle,
+    required Color backgroundColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 22, color: iconColor),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: textPrimary,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              color: textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (subtitle != null)
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 9,
+                color: iconColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Build dates card
+  Widget _buildDatesCard(SubscriptionController controller) {
+    final subscription = controller.subscription;
+    if (subscription == null) return const SizedBox.shrink();
+
+    final dates = subscription.dates;
+    if (!dates.hasData) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: lightGreen,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.date_range_rounded,
+                  color: primaryGreen,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Subscription Period',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Dates timeline
+          if (dates.formattedStartDate.isNotEmpty)
+            _buildDateRow(
+              'Start Date',
+              dates.formattedStartDate,
+              Icons.play_arrow_rounded,
+              primaryGreen,
+            ),
+          if (dates.formattedOriginalEndDate.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.only(left: 12),
+              child: DashedLine(),
+            ),
+            _buildDateRow(
+              'Original End',
+              dates.formattedOriginalEndDate,
+              Icons.flag_outlined,
+              textSecondary,
+            ),
+          ],
+          if (dates.formattedAdjustedEndDate.isNotEmpty &&
+              dates.adjustedEndDate != dates.originalEndDate) ...[
+            const Padding(
+              padding: EdgeInsets.only(left: 12),
+              child: DashedLine(),
+            ),
+            _buildDateRow(
+              'Adjusted End',
+              dates.formattedAdjustedEndDate,
+              Icons.flag_rounded,
+              primaryGreen,
+              isHighlighted: true,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Build date row widget
+  Widget _buildDateRow(
+    String label,
+    String value,
+    IconData icon,
+    Color iconColor, {
+    bool isHighlighted = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 14, color: iconColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13, color: textSecondary),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isHighlighted ? FontWeight.w700 : FontWeight.w600,
+              color: isHighlighted ? primaryGreen : textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build subscription projection card
+  Widget _buildSubscriptionProjectionCard(SubscriptionController controller) {
+    final projection = controller.projection;
+    if (projection == null || !projection.hasData)
+      return const SizedBox.shrink();
+
+    final pauseInfo = projection.pauseInfo;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: lightGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.calendar_month_outlined,
+                  color: primaryGreen,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Subscription Projection',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          // Current End Date
+          if (projection.formattedCurrentEndDate.isNotEmpty)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Current End Date',
+                  style: TextStyle(fontSize: 14, color: textSecondary),
+                ),
+                Text(
+                  projection.formattedCurrentEndDate,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          if (projection.formattedNewEndDate.isNotEmpty &&
+              projection.newEndDate != projection.currentEndDate) ...[
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 16),
+            // New End Date
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'New End Date',
+                  style: TextStyle(fontSize: 14, color: textSecondary),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      projection.formattedNewEndDate,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: primaryGreen,
+                      ),
+                    ),
+                    if (pauseInfo.hasPausedData)
+                      Text(
+                        pauseInfo.label.isNotEmpty
+                            ? pauseInfo.label
+                            : '${pauseInfo.pausedDays} days paused',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: textSecondary,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+          // Pause info summary
+          if (pauseInfo.hasPausedData) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: warningYellow.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: warningText),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${pauseInfo.pausedDays} days paused • ${pauseInfo.pausedMealsCount} meals skipped',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: warningText,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -245,213 +1328,6 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
     );
   }
 
-  Widget _buildSubscriptionCard() {
-    final subscriptionController = context.watch<SubscriptionController>();
-    final bool isLoading = subscriptionController.isLoading;
-    final bool isActive = _subscriptionStatus.toUpperCase() == 'ACTIVE';
-    final bool isPaused = _subscriptionStatus.toUpperCase() == 'PAUSED';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: isLoading
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: primaryGreen),
-              ),
-            )
-          : Column(
-              children: [
-                // Plan info row
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Status badges
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isActive
-                                      ? primaryGreen
-                                      : isPaused
-                                      ? warningText
-                                      : textSecondary,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  _subscriptionStatus.toUpperCase(),
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Total: $_totalMeals Meals',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: textSecondary,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          // Plan name
-                          Text(
-                            _planName,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                              color: textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          // Plan details
-                          Text(
-                            '$_mealsPerDay Meals / Day • $_daysRemaining Days Remaining',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Meal image
-                    Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    Colors.green[100]!,
-                                    Colors.orange[100]!,
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const Center(
-                              child: Icon(
-                                Icons.restaurant_rounded,
-                                color: primaryGreen,
-                                size: 32,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // Action buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child:
-                          (_canPausePlan ||
-                              _subscriptionStatus.toUpperCase() == 'ACTIVE')
-                          ? OutlinedButton.icon(
-                              onPressed: () {
-                                _showPausePlanDialog();
-                              },
-                              icon: const Icon(
-                                Icons.pause_circle_outline,
-                                size: 18,
-                              ),
-                              label: const Text('Pause Plan'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: textPrimary,
-                                side: const BorderSide(color: cardBorder),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                            )
-                          : (_canResumePlan ||
-                                _subscriptionStatus.toUpperCase() == 'PAUSED')
-                          ? ElevatedButton.icon(
-                              onPressed: () async {
-                                await _resumePlan();
-                              },
-                              icon: const Icon(
-                                Icons.play_circle_outline,
-                                size: 18,
-                              ),
-                              label: const Text('Resume Plan'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: primaryGreen,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                            )
-                          : OutlinedButton.icon(
-                              onPressed: null,
-                              icon: const Icon(Icons.block, size: 18),
-                              label: const Text('No Actions Available'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: textSecondary,
-                                side: const BorderSide(color: cardBorder),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-    );
-  }
-
   /// Resume the paused plan
   Future<void> _resumePlan() async {
     final authController = context.read<AuthController>();
@@ -463,7 +1339,6 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
       );
 
       if (success && mounted) {
-        _updateStateFromController(subscriptionController);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(
@@ -495,441 +1370,6 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
         );
       }
     }
-  }
-
-  Widget _buildWarningBanner() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: warningYellow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: warningText.withOpacity(0.3)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.warning_amber_rounded, color: warningText, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Daily cut-off: 10:00 PM',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Modifications for tomorrow must be made by 10 PM today to be effective.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: textSecondary,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCalendar() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cardBorder),
-      ),
-      child: Column(
-        children: [
-          // Weekday headers
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day) {
-              return SizedBox(
-                width: 36,
-                child: Center(
-                  child: Text(
-                    day,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: textSecondary,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 12),
-          // Calendar grid
-          ..._buildCalendarWeeks(),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildCalendarWeeks() {
-    final List<Widget> weeks = [];
-    final int daysInMonth = DateTime(
-      _currentMonth.year,
-      _currentMonth.month + 1,
-      0,
-    ).day;
-    final int firstWeekday =
-        DateTime(_currentMonth.year, _currentMonth.month, 1).weekday % 7;
-
-    List<Widget> currentWeek = [];
-
-    // Add empty cells for days before the 1st
-    for (int i = 0; i < firstWeekday; i++) {
-      currentWeek.add(_buildEmptyDayCell());
-    }
-
-    // Add day cells
-    for (int day = 1; day <= daysInMonth; day++) {
-      currentWeek.add(_buildDayCell(day));
-
-      if (currentWeek.length == 7) {
-        weeks.add(
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: currentWeek,
-            ),
-          ),
-        );
-        currentWeek = [];
-      }
-    }
-
-    // Add remaining empty cells
-    if (currentWeek.isNotEmpty) {
-      while (currentWeek.length < 7) {
-        currentWeek.add(_buildEmptyDayCell());
-      }
-      weeks.add(
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: currentWeek,
-        ),
-      );
-    }
-
-    return weeks;
-  }
-
-  Widget _buildEmptyDayCell() {
-    return const SizedBox(width: 36, height: 36);
-  }
-
-  Widget _buildDayCell(int day) {
-    final bool isDelivery = _deliveryDates.contains(day);
-    final bool isPaused = _pausedDates.contains(day);
-    final bool isToday = day == 5; // Simulating today is Oct 5
-    final bool isSelected = day == _selectedDate.day;
-
-    return GestureDetector(
-      onTap: () => _onDayTap(day),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isSelected
-              ? primaryGreen
-              : isPaused
-              ? textSecondary.withOpacity(0.2)
-              : isDelivery
-              ? lightGreen
-              : Colors.transparent,
-          border: isToday && !isSelected
-              ? Border.all(color: primaryGreen, width: 2)
-              : null,
-        ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Text(
-              '$day',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: isSelected || isToday
-                    ? FontWeight.w700
-                    : FontWeight.w500,
-                color: isSelected
-                    ? Colors.white
-                    : isPaused
-                    ? textSecondary
-                    : textPrimary,
-              ),
-            ),
-            // Delivery dot
-            if (isDelivery && !isPaused && !isSelected)
-              Positioned(
-                bottom: 4,
-                child: Container(
-                  width: 4,
-                  height: 4,
-                  decoration: const BoxDecoration(
-                    color: primaryGreen,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLegendItem(Color color, String label) {
-    return Row(
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: textSecondary,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSubscriptionProjection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cardBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: lightGreen,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.calendar_month_outlined,
-                  color: primaryGreen,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Subscription Projection',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: textPrimary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          // Current End Date
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Current End Date',
-                style: TextStyle(fontSize: 14, color: textSecondary),
-              ),
-              Text(
-                _currentEndDate,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: textPrimary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Divider(height: 1),
-          const SizedBox(height: 16),
-          // New End Date
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'New End Date',
-                style: TextStyle(fontSize: 14, color: textSecondary),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    _newEndDate,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: primaryGreen,
-                    ),
-                  ),
-                  if (_pausedDays > 0)
-                    Text(
-                      '($_pausedDays day paused)',
-                      style: TextStyle(fontSize: 11, color: textSecondary),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUpdateButton() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Helper methods
-
-  void _onDayTap(int day) {
-    // Show options for this day
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'October $day, 2023',
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: textPrimary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (_deliveryDates.contains(day) && !_pausedDates.contains(day))
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: textSecondary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.pause, color: textSecondary),
-                ),
-                title: const Text('Pause this delivery'),
-                subtitle: const Text('Skip delivery on this day'),
-                onTap: () {
-                  setState(() {
-                    _pausedDates.add(day);
-                    _pausedDays++;
-                    _newEndDate = 'Oct ${26 + _pausedDays - 1}, 2023';
-                  });
-                  Navigator.pop(context);
-                },
-              ),
-            if (_pausedDates.contains(day))
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: lightGreen,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.play_arrow, color: primaryGreen),
-                ),
-                title: const Text('Resume this delivery'),
-                subtitle: const Text('Enable delivery on this day'),
-                onTap: () {
-                  setState(() {
-                    _pausedDates.remove(day);
-                    _pausedDays = _pausedDays > 0 ? _pausedDays - 1 : 0;
-                    _newEndDate = _pausedDays == 0
-                        ? _currentEndDate
-                        : 'Oct ${26 + _pausedDays - 1}, 2023';
-                  });
-                  Navigator.pop(context);
-                },
-              ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showOptionsMenu() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.history, color: primaryGreen),
-              title: const Text('View Order History'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.receipt_outlined, color: primaryGreen),
-              title: const Text('View Invoices'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.cancel_outlined, color: Colors.red),
-              title: const Text(
-                'Cancel Subscription',
-                style: TextStyle(color: Colors.red),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _showCancelConfirmation();
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showPausePlanDialog() {
@@ -1756,149 +2196,334 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                         Expanded(
                           flex: 2,
                           child: ElevatedButton(
-                            onPressed: () {
-                              // Validate based on mode
-                              if (pauseForOneDay) {
-                                if (singlePauseDate == null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: const Row(
-                                        children: [
-                                          Icon(
-                                            Icons.warning_amber_rounded,
-                                            color: Colors.white,
+                            onPressed: isSubmitting
+                                ? null
+                                : () async {
+                                    // Validate based on mode
+                                    if (pauseForOneDay) {
+                                      if (singlePauseDate == null) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: const Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  color: Colors.white,
+                                                ),
+                                                SizedBox(width: 12),
+                                                Text('Please select a date'),
+                                              ],
+                                            ),
+                                            backgroundColor: warningText,
+                                            behavior: SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            margin: const EdgeInsets.all(16),
                                           ),
-                                          SizedBox(width: 12),
-                                          Text('Please select a date'),
-                                        ],
-                                      ),
-                                      backgroundColor: warningText,
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      margin: const EdgeInsets.all(16),
-                                    ),
-                                  );
-                                  return;
-                                }
-                                if (!pauseBreakfast &&
-                                    !pauseLunch &&
-                                    !pauseDinner) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: const Row(
-                                        children: [
-                                          Icon(
-                                            Icons.warning_amber_rounded,
-                                            color: Colors.white,
+                                        );
+                                        return;
+                                      }
+                                      if (!pauseBreakfast &&
+                                          !pauseLunch &&
+                                          !pauseDinner) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: const Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  color: Colors.white,
+                                                ),
+                                                SizedBox(width: 12),
+                                                Text(
+                                                  'Please select at least one meal',
+                                                ),
+                                              ],
+                                            ),
+                                            backgroundColor: warningText,
+                                            behavior: SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            margin: const EdgeInsets.all(16),
                                           ),
-                                          SizedBox(width: 12),
-                                          Text(
-                                            'Please select at least one meal',
-                                          ),
-                                        ],
-                                      ),
-                                      backgroundColor: warningText,
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      margin: const EdgeInsets.all(16),
-                                    ),
-                                  );
-                                  return;
-                                }
+                                        );
+                                        return;
+                                      }
 
-                                // Single day mode - show success and close
-                                Navigator.pop(dialogContext);
-                                final meals = _getSelectedMealsText(
-                                  pauseBreakfast,
-                                  pauseLunch,
-                                  pauseDinner,
-                                );
-                                ScaffoldMessenger.of(this.context).showSnackBar(
-                                  SnackBar(
-                                    content: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.check_circle,
-                                          color: Colors.white,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            '$meals paused for ${_formatDate(singlePauseDate!)}',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    backgroundColor: primaryGreen,
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    margin: const EdgeInsets.all(16),
-                                  ),
-                                );
-                              } else {
-                                // Date range mode
-                                if (pauseStartDate == null ||
-                                    pauseEndDate == null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: const Row(
-                                        children: [
-                                          Icon(
-                                            Icons.warning_amber_rounded,
-                                            color: Colors.white,
-                                          ),
-                                          SizedBox(width: 12),
-                                          Text('Please select both dates'),
-                                        ],
-                                      ),
-                                      backgroundColor: warningText,
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      margin: const EdgeInsets.all(16),
-                                    ),
-                                  );
-                                  return;
-                                }
+                                      // Single day mode - Call API for each selected meal
+                                      setStateDialog(() {
+                                        isSubmitting = true;
+                                      });
 
-                                final int pauseDays =
-                                    pauseEndDate!
-                                        .difference(pauseStartDate!)
-                                        .inDays +
-                                    1;
+                                      final authController = this.context
+                                          .read<AuthController>();
+                                      final subscriptionController = this
+                                          .context
+                                          .read<SubscriptionController>();
 
-                                Navigator.pop(dialogContext);
-                                ScaffoldMessenger.of(this.context).showSnackBar(
-                                  SnackBar(
-                                    content: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.check_circle,
-                                          color: Colors.white,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Text(
-                                          'Subscription paused for $pauseDays days',
-                                        ),
-                                      ],
-                                    ),
-                                    backgroundColor: primaryGreen,
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    margin: const EdgeInsets.all(16),
-                                  ),
-                                );
-                              }
-                            },
+                                      if (authController.accessToken != null) {
+                                        // Format date as YYYY-MM-DD
+                                        final dateStr =
+                                            '${singlePauseDate!.year}-${singlePauseDate!.month.toString().padLeft(2, '0')}-${singlePauseDate!.day.toString().padLeft(2, '0')}';
+
+                                        // Call API for all selected meals
+                                        bool success = true;
+                                        List<String> pausedMeals = [];
+
+                                        if (pauseBreakfast) {
+                                          final result =
+                                              await subscriptionController
+                                                  .pauseSingleDay(
+                                                    authController.accessToken!,
+                                                    date: dateStr,
+                                                    mealType: 'breakfast',
+                                                    reason: 'Not needed',
+                                                  );
+                                          if (result) {
+                                            pausedMeals.add('Breakfast');
+                                          } else {
+                                            success = false;
+                                          }
+                                        }
+
+                                        if (pauseLunch && success) {
+                                          final result =
+                                              await subscriptionController
+                                                  .pauseSingleDay(
+                                                    authController.accessToken!,
+                                                    date: dateStr,
+                                                    mealType: 'lunch',
+                                                    reason: 'Not needed',
+                                                  );
+                                          if (result) {
+                                            pausedMeals.add('Lunch');
+                                          } else {
+                                            success = false;
+                                          }
+                                        }
+
+                                        if (pauseDinner && success) {
+                                          final result =
+                                              await subscriptionController
+                                                  .pauseSingleDay(
+                                                    authController.accessToken!,
+                                                    date: dateStr,
+                                                    mealType: 'dinner',
+                                                    reason: 'Not needed',
+                                                  );
+                                          if (result) {
+                                            pausedMeals.add('Dinner');
+                                          } else {
+                                            success = false;
+                                          }
+                                        }
+
+                                        setStateDialog(() {
+                                          isSubmitting = false;
+                                        });
+
+                                        if (success && pausedMeals.isNotEmpty) {
+                                          Navigator.pop(dialogContext);
+                                          ScaffoldMessenger.of(
+                                            this.context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Row(
+                                                children: [
+                                                  const Icon(
+                                                    Icons.check_circle,
+                                                    color: Colors.white,
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Expanded(
+                                                    child: Text(
+                                                      '${pausedMeals.join(', ')} paused for ${_formatDate(singlePauseDate!)}',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              backgroundColor: primaryGreen,
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              margin: const EdgeInsets.all(16),
+                                            ),
+                                          );
+                                        } else {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Row(
+                                                children: [
+                                                  const Icon(
+                                                    Icons.error_outline,
+                                                    color: Colors.white,
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Expanded(
+                                                    child: Text(
+                                                      subscriptionController
+                                                              .errorMessage ??
+                                                          'Failed to pause subscription',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              backgroundColor: Colors.red,
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              margin: const EdgeInsets.all(16),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    } else {
+                                      // Date range mode
+                                      if (pauseStartDate == null ||
+                                          pauseEndDate == null) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: const Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  color: Colors.white,
+                                                ),
+                                                SizedBox(width: 12),
+                                                Text(
+                                                  'Please select both dates',
+                                                ),
+                                              ],
+                                            ),
+                                            backgroundColor: warningText,
+                                            behavior: SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            margin: const EdgeInsets.all(16),
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      setStateDialog(() {
+                                        isSubmitting = true;
+                                      });
+
+                                      final authController = this.context
+                                          .read<AuthController>();
+                                      final subscriptionController = this
+                                          .context
+                                          .read<SubscriptionController>();
+
+                                      if (authController.accessToken != null) {
+                                        // Format dates as YYYY-MM-DD
+                                        final fromDateStr =
+                                            '${pauseStartDate!.year}-${pauseStartDate!.month.toString().padLeft(2, '0')}-${pauseStartDate!.day.toString().padLeft(2, '0')}';
+                                        final toDateStr =
+                                            '${pauseEndDate!.year}-${pauseEndDate!.month.toString().padLeft(2, '0')}-${pauseEndDate!.day.toString().padLeft(2, '0')}';
+
+                                        final success =
+                                            await subscriptionController
+                                                .pauseDateRange(
+                                                  authController.accessToken!,
+                                                  fromDate: fromDateStr,
+                                                  toDate: toDateStr,
+                                                  reason: 'Travel',
+                                                );
+
+                                        setStateDialog(() {
+                                          isSubmitting = false;
+                                        });
+
+                                        if (success) {
+                                          final int pauseDays =
+                                              pauseEndDate!
+                                                  .difference(pauseStartDate!)
+                                                  .inDays +
+                                              1;
+
+                                          Navigator.pop(dialogContext);
+                                          ScaffoldMessenger.of(
+                                            this.context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Row(
+                                                children: [
+                                                  const Icon(
+                                                    Icons.check_circle,
+                                                    color: Colors.white,
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Text(
+                                                    'Subscription paused for $pauseDays days',
+                                                  ),
+                                                ],
+                                              ),
+                                              backgroundColor: primaryGreen,
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              margin: const EdgeInsets.all(16),
+                                            ),
+                                          );
+                                        } else {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Row(
+                                                children: [
+                                                  const Icon(
+                                                    Icons.error_outline,
+                                                    color: Colors.white,
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Expanded(
+                                                    child: Text(
+                                                      subscriptionController
+                                                              .errorMessage ??
+                                                          'Failed to pause subscription',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              backgroundColor: Colors.red,
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              margin: const EdgeInsets.all(16),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    }
+                                  },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: primaryGreen,
                               foregroundColor: Colors.white,
@@ -2062,67 +2687,14 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  void _showCancelConfirmation() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text(
-          'Cancel Subscription?',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-        content: const Text(
-          'Are you sure you want to cancel your subscription? This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Keep Subscription',
-              style: TextStyle(color: textSecondary),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showUpdateConfirmation() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            SizedBox(width: 12),
-            Text('Subscription updated successfully!'),
-          ],
-        ),
-        backgroundColor: primaryGreen,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
-
   Widget _buildDrawer() {
     // Get user data from AuthController
     final authController = context.watch<AuthController>();
     final user = authController.user;
     final userName = user?.fullName ?? 'Guest User';
     final userEmail = user?.email ?? 'Not logged in';
-    final subscriptionPlan = _planName;
+    final subscriptionPlan =
+        context.watch<SubscriptionController>().plan?.name ?? 'Premium Plan';
 
     return Drawer(
       backgroundColor: backgroundColor,
@@ -2288,6 +2860,19 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                     );
                   },
                 ),
+                _buildDrawerItem(
+                  icon: Icons.shopping_bag_outlined,
+                  title: 'Add-ons',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AddOnsListScreen(),
+                      ),
+                    );
+                  },
+                ),
                 const Divider(height: 32),
                 _buildDrawerItem(
                   icon: Icons.settings_outlined,
@@ -2413,6 +2998,45 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
         ),
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+}
+
+class DashedLine extends StatelessWidget {
+  final double height;
+  final double dashWidth;
+  final Color color;
+
+  const DashedLine({
+    super.key,
+    this.height = 24,
+    this.dashWidth = 4,
+    this.color = const Color(0xFFE5E7EB),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: height,
+      width: 1,
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final boxHeight = constraints.constrainHeight();
+          final dashHeight = dashWidth;
+          final dashCount = (boxHeight / (2 * dashHeight)).floor();
+          return Flex(
+            direction: Axis.vertical,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(dashCount, (_) {
+              return SizedBox(
+                width: 1,
+                height: dashHeight,
+                child: DecoratedBox(decoration: BoxDecoration(color: color)),
+              );
+            }),
+          );
+        },
       ),
     );
   }

@@ -47,6 +47,9 @@ dependencies:
   
   # Location Services
   geolocator: ^11.0.0
+  
+  # URL Launcher for WhatsApp
+  url_launcher: ^6.2.5
 
 dev_dependencies:
   flutter_test:
