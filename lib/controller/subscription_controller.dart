@@ -101,14 +101,14 @@ class SubscriptionController extends ChangeNotifier {
     }
   }
 
-  /// Pause subscription for a single day with specific meal
+  /// Pause subscription for a single day with specific meal(s)
   /// [date] - Date to pause (YYYY-MM-DD format)
-  /// [mealType] - Type of meal to pause: 'breakfast', 'lunch', or 'dinner'
+  /// [mealTypes] - List of meal types to pause: ['breakfast'], ['lunch'], ['dinner'], or multiple
   /// [reason] - Reason for pausing (optional)
   Future<bool> pauseSingleDay(
     String accessToken, {
     required String date,
-    required String mealType,
+    required List<String> mealTypes,
     String? reason,
   }) async {
     _isLoading = true;
@@ -119,13 +119,13 @@ class SubscriptionController extends ChangeNotifier {
       final url = ApiConstants.getUrl(ApiConstants.subscriptionPause);
       debugPrint('SubscriptionController: Pausing single day at $url');
       debugPrint(
-        'SubscriptionController: date: $date, meal_type: $mealType, reason: $reason',
+        'SubscriptionController: date: $date, meal_types: $mealTypes, reason: $reason',
       );
 
       final body = <String, dynamic>{
         'pause_type': 'single',
         'date': date,
-        'meal_type': mealType,
+        'meal_types': mealTypes,
       };
 
       if (reason != null && reason.isNotEmpty) {

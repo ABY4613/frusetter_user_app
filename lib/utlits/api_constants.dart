@@ -1,7 +1,7 @@
 /// API Constants for Frusette Customer App
 class ApiConstants {
   // Base URL
-  static const String baseUrl = 'https://frusette-backend-ym62.onrender.com';
+  static const String baseUrl = 'api.frusette.com';
 
   // API Version
   static const String apiVersion = '/v1';

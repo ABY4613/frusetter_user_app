@@ -2258,7 +2258,7 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                                         return;
                                       }
 
-                                      // Single day mode - Call API for each selected meal
+                                      // Single day mode - Collect selected meals and make single API call
                                       setStateDialog(() {
                                         isSubmitting = true;
                                       });
@@ -2274,63 +2274,38 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                                         final dateStr =
                                             '${singlePauseDate!.year}-${singlePauseDate!.month.toString().padLeft(2, '0')}-${singlePauseDate!.day.toString().padLeft(2, '0')}';
 
-                                        // Call API for all selected meals
-                                        bool success = true;
-                                        List<String> pausedMeals = [];
+                                        // Collect all selected meal types
+                                        List<String> selectedMealTypes = [];
+                                        List<String> displayMealNames = [];
 
                                         if (pauseBreakfast) {
-                                          final result =
-                                              await subscriptionController
-                                                  .pauseSingleDay(
-                                                    authController.accessToken!,
-                                                    date: dateStr,
-                                                    mealType: 'breakfast',
-                                                    reason: 'Not needed',
-                                                  );
-                                          if (result) {
-                                            pausedMeals.add('Breakfast');
-                                          } else {
-                                            success = false;
-                                          }
+                                          selectedMealTypes.add('breakfast');
+                                          displayMealNames.add('Breakfast');
+                                        }
+                                        if (pauseLunch) {
+                                          selectedMealTypes.add('lunch');
+                                          displayMealNames.add('Lunch');
+                                        }
+                                        if (pauseDinner) {
+                                          selectedMealTypes.add('dinner');
+                                          displayMealNames.add('Dinner');
                                         }
 
-                                        if (pauseLunch && success) {
-                                          final result =
-                                              await subscriptionController
-                                                  .pauseSingleDay(
-                                                    authController.accessToken!,
-                                                    date: dateStr,
-                                                    mealType: 'lunch',
-                                                    reason: 'Not needed',
-                                                  );
-                                          if (result) {
-                                            pausedMeals.add('Lunch');
-                                          } else {
-                                            success = false;
-                                          }
-                                        }
-
-                                        if (pauseDinner && success) {
-                                          final result =
-                                              await subscriptionController
-                                                  .pauseSingleDay(
-                                                    authController.accessToken!,
-                                                    date: dateStr,
-                                                    mealType: 'dinner',
-                                                    reason: 'Not needed',
-                                                  );
-                                          if (result) {
-                                            pausedMeals.add('Dinner');
-                                          } else {
-                                            success = false;
-                                          }
-                                        }
+                                        // Make single API call with all selected meals
+                                        final success =
+                                            await subscriptionController
+                                                .pauseSingleDay(
+                                                  authController.accessToken!,
+                                                  date: dateStr,
+                                                  mealTypes: selectedMealTypes,
+                                                  reason: 'Skipping meal(s)',
+                                                );
 
                                         setStateDialog(() {
                                           isSubmitting = false;
                                         });
 
-                                        if (success && pausedMeals.isNotEmpty) {
+                                        if (success) {
                                           Navigator.pop(dialogContext);
                                           ScaffoldMessenger.of(
                                             this.context,
@@ -2345,7 +2320,7 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                                                   const SizedBox(width: 12),
                                                   Expanded(
                                                     child: Text(
-                                                      '${pausedMeals.join(', ')} paused for ${_formatDate(singlePauseDate!)}',
+                                                      '${displayMealNames.join(', ')} paused for ${_formatDate(singlePauseDate!)}',
                                                     ),
                                                   ),
                                                 ],
