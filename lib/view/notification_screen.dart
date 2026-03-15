@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 import '../controller/auth_controller.dart';
 import '../controller/payment_status_controller.dart';
+import '../controller/notification_controller.dart';
+import '../model/notification_model.dart';
+import 'widgets/feedback_popup.dart';
 
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({super.key});
@@ -33,46 +37,6 @@ class _NotificationScreenState extends State<NotificationScreen>
   Timer? _refreshTimer;
   static const Duration _refreshInterval = Duration(seconds: 30);
 
-  // Delivery Status notifications (dummy data - will be from API later)
-  final List<DeliveryNotification> _deliveryNotifications = [
-    DeliveryNotification(
-      id: '1',
-      title: 'Order Picked Up',
-      message: 'Your lunch order has been picked up by the delivery partner.',
-      time: '5m ago',
-      status: DeliveryStatus.pickedUp,
-    ),
-    DeliveryNotification(
-      id: '2',
-      title: 'Driver is Nearby',
-      message:
-          'Your food is about 10 minutes away. Please be ready to receive.',
-      time: '10m ago',
-      status: DeliveryStatus.nearby,
-    ),
-    DeliveryNotification(
-      id: '3',
-      title: 'Out for Delivery',
-      message: 'Your dinner is on the way! Estimated arrival in 25 minutes.',
-      time: '1h ago',
-      status: DeliveryStatus.outForDelivery,
-    ),
-    DeliveryNotification(
-      id: '4',
-      title: 'Food Delivered',
-      message: 'Your lunch has been delivered successfully. Enjoy your meal!',
-      time: '3h ago',
-      status: DeliveryStatus.delivered,
-    ),
-    DeliveryNotification(
-      id: '5',
-      title: 'Preparing Your Order',
-      message: 'Your breakfast is being prepared in the kitchen.',
-      time: '1d ago',
-      status: DeliveryStatus.preparing,
-    ),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -86,9 +50,9 @@ class _NotificationScreenState extends State<NotificationScreen>
     );
     _animationController.forward();
 
-    // Fetch payment status
+    // Fetch data
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchPaymentStatus();
+      _fetchData();
       _startAutoRefresh();
     });
   }
@@ -98,19 +62,22 @@ class _NotificationScreenState extends State<NotificationScreen>
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
       if (mounted) {
-        _fetchPaymentStatus();
+        _fetchData();
       }
     });
   }
 
-  Future<void> _fetchPaymentStatus() async {
+  Future<void> _fetchData() async {
     final authController = context.read<AuthController>();
     final paymentStatusController = context.read<PaymentStatusController>();
+    final notificationController = context.read<NotificationController>();
 
     if (authController.accessToken != null) {
-      await paymentStatusController.fetchPaymentStatus(
-        authController.accessToken!,
-      );
+      final token = authController.accessToken!;
+      await Future.wait([
+        paymentStatusController.fetchPaymentStatus(token),
+        notificationController.fetchNotifications(token),
+      ]);
     }
   }
 
@@ -121,6 +88,14 @@ class _NotificationScreenState extends State<NotificationScreen>
     super.dispose();
   }
 
+  String _getTimeAgo(DateTime dateTime) {
+    final difference = DateTime.now().difference(dateTime);
+    if (difference.inDays > 0) return '${difference.inDays}d ago';
+    if (difference.inHours > 0) return '${difference.inHours}h ago';
+    if (difference.inMinutes > 0) return '${difference.inMinutes}m ago';
+    return 'Just now';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -129,7 +104,7 @@ class _NotificationScreenState extends State<NotificationScreen>
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: RefreshIndicator(
-          onRefresh: _fetchPaymentStatus,
+          onRefresh: _fetchData,
           color: primaryGreen,
           backgroundColor: Colors.white,
           child: _buildNotificationList(),
@@ -167,16 +142,51 @@ class _NotificationScreenState extends State<NotificationScreen>
         ),
       ),
       centerTitle: true,
+      actions: [
+        Consumer<NotificationController>(
+          builder: (context, controller, child) {
+            if (controller.unreadCount > 0) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${controller.unreadCount} New',
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ],
     );
   }
 
   Widget _buildNotificationList() {
     final paymentStatusController = context.watch<PaymentStatusController>();
+    final notificationController = context.watch<NotificationController>();
+    
     final bool hasPaymentNotification = paymentStatusController.paymentRequired;
-    final bool hasDeliveryNotifications = _deliveryNotifications.isNotEmpty;
+    final notifications = notificationController.notifications;
 
-    if (!hasPaymentNotification && !hasDeliveryNotifications) {
+    if (!hasPaymentNotification && notifications.isEmpty && !notificationController.isLoading) {
       return _buildEmptyState();
+    }
+
+    if (notificationController.isLoading && notifications.isEmpty) {
+      return const Center(child: CircularProgressIndicator(color: primaryGreen));
     }
 
     return ListView(
@@ -200,16 +210,16 @@ class _NotificationScreenState extends State<NotificationScreen>
           const SizedBox(height: 16),
         ],
 
-        // Delivery Status Section
-        if (hasDeliveryNotifications) ...[
+        // Other Notifications Section
+        if (notifications.isNotEmpty) ...[
           _buildSectionHeader(
-            'DELIVERY UPDATES',
-            icon: Icons.delivery_dining_rounded,
+            'UPDATES',
+            icon: Icons.notifications_active_rounded,
             iconColor: primaryGreen,
             bgColor: lightGreen,
           ),
           const SizedBox(height: 12),
-          ..._deliveryNotifications.map((n) => _buildDeliveryStatusCard(n)),
+          ...notifications.map((n) => _buildNotificationCard(n)),
         ],
 
         const SizedBox(height: 30),
@@ -225,7 +235,7 @@ class _NotificationScreenState extends State<NotificationScreen>
           Container(
             width: 100,
             height: 100,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: lightGreen,
               shape: BoxShape.circle,
             ),
@@ -245,7 +255,7 @@ class _NotificationScreenState extends State<NotificationScreen>
             ),
           ),
           const SizedBox(height: 8),
-          Text(
+          const Text(
             'You\'re all caught up! Check back later.',
             style: TextStyle(fontSize: 14, color: textSecondary),
           ),
@@ -374,7 +384,7 @@ class _NotificationScreenState extends State<NotificationScreen>
                       const SizedBox(height: 4),
                       Text(
                         controller.planName,
-                        style: TextStyle(fontSize: 12, color: textSecondary),
+                        style: const TextStyle(fontSize: 12, color: textSecondary),
                       ),
                     ],
                   ),
@@ -389,7 +399,7 @@ class _NotificationScreenState extends State<NotificationScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Your subscription payment is pending. Please pay now to continue enjoying uninterrupted service.',
                   style: TextStyle(
                     fontSize: 14,
@@ -436,16 +446,19 @@ class _NotificationScreenState extends State<NotificationScreen>
     );
   }
 
-  Widget _buildDeliveryStatusCard(DeliveryNotification notification) {
-    final statusInfo = _getDeliveryStatusInfo(notification.status);
+  Widget _buildNotificationCard(NotificationItem notification) {
+    final statusInfo = _getNotificationStatusInfo(notification);
+    final bool isUnread = !notification.isRead;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cardBorder, width: 1),
+        color: notification.isRead ? Colors.white : Colors.red.withOpacity(0.02),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: notification.isRead ? cardBorder : Colors.red.withOpacity(0.3),
+          width: notification.isRead ? 1 : 1.5,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -454,155 +467,236 @@ class _NotificationScreenState extends State<NotificationScreen>
           ),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Status Icon
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: statusInfo.bgColor,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(statusInfo.icon, color: statusInfo.iconColor, size: 24),
+      child: InkWell(
+        onTap: () => _showNotificationDetail(notification),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Status Icon with Animated Color
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: isUnread ? Colors.red.withOpacity(0.1) : statusInfo.bgColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      statusInfo.icon,
+                      color: isUnread ? Colors.red : statusInfo.iconColor,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  // Content
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                notification.title,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: isUnread ? FontWeight.w800 : FontWeight.w400,
+                                  color: isUnread ? textPrimary : textSecondary,
+                                ),
+                              ),
+                            ),
+                            if (isUnread)
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          notification.message,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: textSecondary,
+                            height: 1.4,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _getTimeAgo(notification.createdAt),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: textSecondary.withOpacity(0.7),
+                              ),
+                            ),
+                            // View Button - Only show for Unread
+                            if (isUnread)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.visibility_outlined,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'View',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 14),
-          // Content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        notification.title,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: textPrimary,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusInfo.bgColor,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        statusInfo.label,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: statusInfo.iconColor,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  notification.message,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: textSecondary,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  notification.time,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: textSecondary.withOpacity(0.7),
-                  ),
-                ),
-              ],
+        ),
+      ),
+    );
+  }
+
+  void _showNotificationDetail(NotificationItem notification) {
+    final authController = context.read<AuthController>();
+    final notificationController = context.read<NotificationController>();
+
+    // Mark as read automatically
+    if (!notification.isRead) {
+      if (authController.accessToken != null) {
+        notificationController.markAsRead(
+          authController.accessToken!,
+          notification.id,
+        );
+      }
+    }
+
+    // Special handling for feedback request
+    if (notification.notificationType == 'delivery_feedback_request' &&
+        notification.metadata?.deliveryId != null &&
+        notification.metadata?.feedbackSubmitted == false) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => FeedbackPopup(
+          deliveryId: notification.metadata!.deliveryId!,
+          mealName: notification.metadata!.mealName ?? 'meal',
+          accessToken: authController.accessToken!,
+          onDismissed: () => Navigator.pop(context),
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(notification.title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(notification.message),
+            const SizedBox(height: 16),
+            Text(
+              'Received on: ${DateFormat('MMM dd, yyyy - hh:mm a').format(notification.createdAt)}',
+              style: const TextStyle(fontSize: 12, color: textSecondary),
             ),
+            if (notification.metadata?.mealName != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Meal: ${notification.metadata!.mealName}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: primaryGreen)),
           ),
         ],
       ),
     );
   }
 
-  DeliveryStatusInfo _getDeliveryStatusInfo(DeliveryStatus status) {
-    switch (status) {
-      case DeliveryStatus.preparing:
-        return DeliveryStatusInfo(
-          icon: Icons.restaurant_rounded,
-          iconColor: const Color(0xFFF59E0B),
-          bgColor: const Color(0xFFFEF3C7),
-          label: 'PREPARING',
-        );
-      case DeliveryStatus.pickedUp:
-        return DeliveryStatusInfo(
-          icon: Icons.inventory_2_rounded,
+  NotificationStatusInfo _getNotificationStatusInfo(NotificationItem notification) {
+    switch (notification.notificationType) {
+      case 'order_update':
+      case 'delivery_update':
+        return NotificationStatusInfo(
+          icon: Icons.delivery_dining_rounded,
           iconColor: blue,
           bgColor: lightBlue,
-          label: 'PICKED UP',
+          label: 'DELIVERY',
         );
-      case DeliveryStatus.outForDelivery:
-        return DeliveryStatusInfo(
-          icon: Icons.delivery_dining_rounded,
-          iconColor: const Color(0xFF8B5CF6),
-          bgColor: const Color(0xFFEDE9FE),
-          label: 'ON THE WAY',
+      case 'delivery_feedback_request':
+        return NotificationStatusInfo(
+          icon: Icons.rate_review_rounded,
+          iconColor: Colors.orange,
+          bgColor: Colors.orange.withOpacity(0.12),
+          label: 'FEEDBACK',
         );
-      case DeliveryStatus.nearby:
-        return DeliveryStatusInfo(
-          icon: Icons.near_me_rounded,
+      case 'payment':
+        return NotificationStatusInfo(
+          icon: Icons.payment_rounded,
+          iconColor: red,
+          bgColor: lightRed,
+          label: 'PAYMENT',
+        );
+      default:
+        return NotificationStatusInfo(
+          icon: Icons.notifications_rounded,
           iconColor: primaryGreen,
           bgColor: lightGreen,
-          label: 'NEARBY',
-        );
-      case DeliveryStatus.delivered:
-        return DeliveryStatusInfo(
-          icon: Icons.check_circle_rounded,
-          iconColor: primaryGreen,
-          bgColor: lightGreen,
-          label: 'DELIVERED',
+          label: 'NOTIFICATION',
         );
     }
   }
 }
 
-// Delivery status types
-enum DeliveryStatus { preparing, pickedUp, outForDelivery, nearby, delivered }
-
-// Delivery status visual info
-class DeliveryStatusInfo {
+// Visual info helper
+class NotificationStatusInfo {
   final IconData icon;
   final Color iconColor;
   final Color bgColor;
   final String label;
 
-  DeliveryStatusInfo({
+  NotificationStatusInfo({
     required this.icon,
     required this.iconColor,
     required this.bgColor,
     required this.label,
-  });
-}
-
-// Delivery notification model
-class DeliveryNotification {
-  final String id;
-  final String title;
-  final String message;
-  final String time;
-  final DeliveryStatus status;
-
-  DeliveryNotification({
-    required this.id,
-    required this.title,
-    required this.message,
-    required this.time,
-    required this.status,
   });
 }

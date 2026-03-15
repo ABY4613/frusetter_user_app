@@ -1,4 +1,4 @@
-package com.example.frusette_customer_app
+package com.neuware.frusette
 
 import io.flutter.embedding.android.FlutterActivity
 

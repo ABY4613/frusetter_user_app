@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:intl/intl.dart';
 import '../controller/address_controller.dart';
 import '../controller/auth_controller.dart';
+import '../controller/subscription_controller.dart';
 import '../model/address_model.dart';
+import '../utlits/meal_service.dart';
 import 'location_picker_screen.dart';
 
 class DeliveryAddressManagement extends StatefulWidget {
@@ -32,17 +35,9 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
   int _selectedLocationIndex = 0;
 
   // Schedule data
-  final List<ScheduleItem> _schedule = [
-    ScheduleItem(day: 'Monday', mealType: 'Lunch & Dinner', location: 'Home'),
-    ScheduleItem(day: 'Tuesday', mealType: 'Lunch Only', location: 'Office'),
-    ScheduleItem(day: 'Wednesday', mealType: 'Dinner Only', location: 'Office'),
-    ScheduleItem(day: 'Thursday', mealType: 'Lunch & Dinner', location: 'Home'),
-    ScheduleItem(day: 'Friday', mealType: 'Breakfast & Lunch', location: 'Gym'),
-    ScheduleItem(day: 'Saturday', mealType: 'Skipped', location: 'None'),
-    ScheduleItem(day: 'Sunday', mealType: 'Skipped', location: 'None'),
-  ];
+  List<ScheduleItem> _schedule = [];
+  bool _isUpdatingSchedule = false;
 
-  List<String> _locationOptions = ['Home', 'Office', 'Gym', 'None'];
 
   @override
   void initState() {
@@ -59,6 +54,45 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
     // Initialize address controller with token and fetch addresses
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeAddressController();
+      _generateSchedule();
+    });
+  }
+
+  void _generateSchedule() {
+    final subscriptionController = context.read<SubscriptionController>();
+    final addressController = context.read<AddressController>();
+    
+    // Default meal types if plan data not yet loaded
+    List<String> planMealTypes = subscriptionController.plan?.mealTypes ?? ['lunch', 'dinner'];
+    if (planMealTypes.isEmpty) planMealTypes = ['lunch', 'dinner'];
+
+    List<ScheduleItem> newSchedule = [];
+    DateTime current = DateTime.now().add(const Duration(days: 1));
+    int count = 0;
+
+    // Generate next 6 delivery days (excluding Sunday)
+    while (count < 6) {
+      if (current.weekday != DateTime.sunday) {
+        newSchedule.add(ScheduleItem(
+          date: current,
+          settings: planMealTypes.map((type) => MealAddressSetting(
+            mealType: type,
+            // Try to find default address
+            addressId: addressController.addresses.isNotEmpty 
+                ? addressController.addresses.firstWhere((a) => a.isDefault, orElse: () => addressController.addresses.first).id 
+                : null,
+            addressLabel: addressController.addresses.isNotEmpty 
+                ? addressController.addresses.firstWhere((a) => a.isDefault, orElse: () => addressController.addresses.first).label 
+                : 'Select Address',
+          )).toList(),
+        ));
+        count++;
+      }
+      current = current.add(const Duration(days: 1));
+    }
+
+    setState(() {
+      _schedule = newSchedule;
     });
   }
 
@@ -550,16 +584,11 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
   }
 
   Widget _buildDeliveryScheduleSection(AddressController addressController) {
-    // Update location options based on fetched addresses
-    _locationOptions = [
-      ...addressController.addresses.map((a) => a.label),
-      'None',
-    ];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
               'Delivery Schedule',
@@ -569,167 +598,203 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
                 color: textPrimary,
               ),
             ),
-            const SizedBox(width: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: dividerColor,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(
-                'Weekly',
+              child: const Text(
+                'Next 6 Days',
                 style: TextStyle(
                   fontSize: 12,
                   color: textSecondary,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        // Schedule list
-        ...List.generate(_schedule.length, (index) {
-          return _buildScheduleRow(_schedule[index], index);
-        }),
+        const SizedBox(height: 8),
+        const Text(
+          'Set different addresses for your breakfast, lunch, and dinner deliveries.',
+          style: TextStyle(fontSize: 13, color: textSecondary),
+        ),
+        const SizedBox(height: 20),
+        
+        if (_schedule.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: CircularProgressIndicator(color: primaryGreen),
+            ),
+          )
+        else
+          // Schedule list
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _schedule.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 16),
+            itemBuilder: (context, index) {
+              return _buildScheduleCard(_schedule[index], index, addressController);
+            },
+          ),
       ],
     );
   }
 
-  Widget _buildScheduleRow(ScheduleItem schedule, int index) {
-    final isSkipped = schedule.location == 'None';
-
+  Widget _buildScheduleCard(ScheduleItem schedule, int scheduleIndex, AddressController addressController) {
+    String formattedDate = DateFormat('EEEE, MMM dd').format(schedule.date);
+    
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: index < _schedule.length - 1
-                ? dividerColor
-                : Colors.transparent,
-            width: 1,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-        ),
+        ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Day info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // Date Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Row(
               children: [
+                Icon(Icons.calendar_today_rounded, size: 16, color: primaryGreen),
+                const SizedBox(width: 8),
                 Text(
-                  schedule.day,
-                  style: TextStyle(
+                  formattedDate,
+                  style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: isSkipped ? textSecondary : textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  schedule.mealType,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: textSecondary,
-                    fontStyle: isSkipped ? FontStyle.italic : FontStyle.normal,
+                    fontWeight: FontWeight.w700,
+                    color: textPrimary,
                   ),
                 ),
               ],
             ),
           ),
-          // Location dropdown
-          _buildLocationDropdown(schedule, index),
+          
+          // Meal Types
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: schedule.settings.map((setting) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      // Meal Type Icon & Label
+                      Container(
+                        width: 100,
+                        child: Row(
+                          children: [
+                            Icon(
+                              _getMealIcon(setting.mealType),
+                              size: 18,
+                              color: textSecondary,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              setting.mealType[0].toUpperCase() + setting.mealType.substring(1),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      const SizedBox(width: 12),
+                      
+                      // Address Dropdown
+                      Expanded(
+                        child: _buildAddressSelector(scheduleIndex, setting, addressController),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildLocationDropdown(ScheduleItem schedule, int index) {
-    final isSkipped = schedule.location == 'None';
-
-    IconData getLocationIcon(String location) {
-      switch (location.toLowerCase()) {
-        case 'home':
-          return Icons.home_rounded;
-        case 'office':
-        case 'work':
-          return Icons.business_rounded;
-        case 'gym':
-          return Icons.fitness_center_rounded;
-        default:
-          return Icons.not_listed_location_outlined;
-      }
+  IconData _getMealIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'breakfast': return Icons.free_breakfast_rounded;
+      case 'lunch': return Icons.lunch_dining_rounded;
+      case 'dinner': return Icons.dinner_dining_rounded;
+      default: return Icons.restaurant_rounded;
     }
+  }
 
+  Widget _buildAddressSelector(int scheduleIndex, MealAddressSetting setting, AddressController addressController) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: isSkipped ? dividerColor : lightGreen,
+        color: lightGreen.withOpacity(0.4),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isSkipped ? cardBorder : primaryGreen.withOpacity(0.3),
-        ),
+        border: Border.all(color: primaryGreen.withOpacity(0.2)),
       ),
-      child: PopupMenuButton<String>(
-        initialValue: schedule.location,
-        onSelected: (value) {
+      child: PopupMenuButton<Address>(
+        onSelected: (address) {
           setState(() {
-            _schedule[index] = ScheduleItem(
-              day: schedule.day,
-              mealType: value == 'None' ? 'Skipped' : schedule.mealType,
-              location: value,
-            );
+            setting.addressId = address.id;
+            setting.addressLabel = address.label;
           });
         },
         offset: const Offset(0, 40),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        itemBuilder: (context) => _locationOptions.map((location) {
-          return PopupMenuItem<String>(
-            value: location,
+        itemBuilder: (context) => addressController.addresses.map((addr) {
+          return PopupMenuItem<Address>(
+            value: addr,
             child: Row(
               children: [
                 Icon(
-                  getLocationIcon(location),
-                  color: location == 'None' ? textSecondary : primaryGreen,
-                  size: 18,
+                  addr.label.toLowerCase() == 'home' ? Icons.home_rounded : 
+                  (addr.label.toLowerCase() == 'office' ? Icons.business_rounded : Icons.place),
+                  color: primaryGreen, 
+                  size: 18
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  location,
-                  style: TextStyle(
-                    color: location == 'None' ? textSecondary : textPrimary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                Text(addr.label, style: const TextStyle(fontWeight: FontWeight.w600)),
               ],
             ),
           );
         }).toList(),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            if (!isSkipped)
-              Icon(
-                getLocationIcon(schedule.location),
-                color: primaryGreen,
-                size: 16,
-              ),
-            if (!isSkipped) const SizedBox(width: 6),
-            Text(
-              schedule.location,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: isSkipped ? textSecondary : primaryGreen,
+            Expanded(
+              child: Text(
+                setting.addressLabel ?? 'Select Address',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: primaryGreen,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 4),
-            Icon(
-              Icons.keyboard_arrow_down_rounded,
-              color: isSkipped ? textSecondary : primaryGreen,
-              size: 18,
-            ),
+            const Icon(Icons.keyboard_arrow_down_rounded, color: primaryGreen, size: 18),
           ],
         ),
       ),
@@ -754,9 +819,7 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
         child: SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: () {
-              _showUpdateConfirmation();
-            },
+            onPressed: _isUpdatingSchedule ? null : _handleUpdateSchedule,
             style: ElevatedButton.styleFrom(
               backgroundColor: primaryGreen,
               foregroundColor: Colors.white,
@@ -766,15 +829,66 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
-            child: const Text(
-              'Update Schedule',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
+            child: _isUpdatingSchedule
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Text(
+                    'Update Schedule',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
           ),
         ),
       ),
     );
   }
+
+  Future<void> _handleUpdateSchedule() async {
+    final authController = context.read<AuthController>();
+    final token = authController.accessToken;
+    
+    if (token == null) return;
+
+    setState(() => _isUpdatingSchedule = true);
+
+    int successCount = 0;
+    int totalUpdates = 0;
+
+    // Collect all unique updates
+    for (var schedule in _schedule) {
+      for (var setting in schedule.settings) {
+        if (setting.addressId != null) {
+          totalUpdates++;
+          final success = await MealService.updateMealAddress(
+            accessToken: token,
+            deliveryDate: DateFormat('yyyy-MM-dd').format(schedule.date),
+            mealType: setting.mealType,
+            addressId: setting.addressId!,
+          );
+          if (success) successCount++;
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() => _isUpdatingSchedule = false);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            successCount == totalUpdates 
+              ? 'Schedule updated successfully! ✨' 
+              : 'Updated $successCount of $totalUpdates meal settings.'
+          ),
+          backgroundColor: successCount == totalUpdates ? primaryGreen : Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
 
   void _showAddLocationDialog() {
     final labelController = TextEditingController();
@@ -1656,9 +1770,6 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
     Navigator.pop(context);
   }
 
-  void _showUpdateConfirmation() {
-    _showSuccessSnackbar('Schedule updated successfully!');
-  }
 
   void _showSuccessSnackbar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1699,14 +1810,24 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
 
 // Data models
 class ScheduleItem {
-  final String day;
-  final String mealType;
-  final String location;
+  final DateTime date;
+  final List<MealAddressSetting> settings;
 
   ScheduleItem({
-    required this.day,
+    required this.date,
+    required this.settings,
+  });
+}
+
+class MealAddressSetting {
+  final String mealType;
+  String? addressId;
+  String? addressLabel;
+
+  MealAddressSetting({
     required this.mealType,
-    required this.location,
+    this.addressId,
+    this.addressLabel,
   });
 }
 

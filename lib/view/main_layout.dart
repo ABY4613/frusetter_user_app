@@ -10,6 +10,7 @@ import 'meals_feedback.dart';
 import 'notification_screen.dart';
 import 'help_desk_screen.dart';    
 import 'addons_list_screen.dart';
+import 'menu_card_screen.dart';
 
 // Color constants
 const Color primaryGreen = Color(0xFF8AC53D);
@@ -42,6 +43,7 @@ class _MainLayoutState extends State<MainLayout> {
   List<Widget> _getScreens(bool isLargeScreen) {
     return [
       SubscriptionDashboard(showAppBar: !isLargeScreen),
+      const MenuCardScreen(),
       const DeliveryAddressManagement(),
       const LiveOrderTrack(),
       const MealsFeedback(),
@@ -219,29 +221,34 @@ class _MainLayoutState extends State<MainLayout> {
                   index: 0,
                 ),
                 _buildSidebarItem(
+                  icon: Icons.restaurant_menu_rounded,
+                  title: 'Menu Card',
+                  index: 1,
+                ),
+                _buildSidebarItem(
                   icon: Icons.location_on_outlined,
                   title: 'Delivery Address',
-                  index: 1,
+                  index: 2,
                 ),
                 _buildSidebarItem(
                   icon: Icons.local_shipping_outlined,
                   title: 'Track Order',
-                  index: 2,
+                  index: 3,
                 ),
                 _buildSidebarItem(
                   icon: Icons.star_border_rounded,
                   title: 'Meals Feedback',
-                  index: 3,
+                  index: 4,
                 ),
                 _buildSidebarItem(
                   icon: Icons.notifications_outlined,
                   title: 'Notifications',
-                  index: 4,
+                  index: 5,
                 ),
                 _buildSidebarItem(
                   icon: Icons.shopping_bag_outlined,
                   title: 'Add-ons',
-                  index: 5,
+                  index: 6,
                 ),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -250,13 +257,13 @@ class _MainLayoutState extends State<MainLayout> {
                 _buildSidebarItem(
                   icon: Icons.settings_outlined,
                   title: 'Settings',
-                  index: 6,
+                  index: 7,
                   isSettings: true,
                 ),
                 _buildSidebarItem(
                   icon: Icons.support_agent_rounded,
                   title: 'Help & Support',
-                  index: 6,
+                  index: 7,
                 ),
               ],
             ),

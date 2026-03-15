@@ -6,6 +6,7 @@ import 'controller/subscription_controller.dart';
 import 'controller/address_controller.dart';
 import 'controller/payment_status_controller.dart';
 import 'controller/addon_controller.dart';
+import 'controller/notification_controller.dart';
 import 'view/splash_screen.dart';
 import 'view/login_screen.dart';
 
@@ -35,6 +36,7 @@ class FrusetteApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AddressController()),
         ChangeNotifierProvider(create: (_) => PaymentStatusController()),
         ChangeNotifierProvider(create: (_) => AddOnController()),
+        ChangeNotifierProvider(create: (_) => NotificationController()),
       ],
       child: MaterialApp(
         title: 'Frusette',

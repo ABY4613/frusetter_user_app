@@ -13,6 +13,10 @@ import 'meals_feedback.dart';
 import 'notification_screen.dart';
 import 'help_desk_screen.dart';
 import 'addons_list_screen.dart';
+import 'menu_card_screen.dart';
+import 'pause_details_screen.dart';
+import 'widgets/feedback_popup.dart';
+import '../controller/notification_controller.dart';
 
 class SubscriptionDashboard extends StatefulWidget {
   final bool showAppBar;
@@ -76,6 +80,7 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
     final authController = context.read<AuthController>();
     final subscriptionController = context.read<SubscriptionController>();
     final paymentStatusController = context.read<PaymentStatusController>();
+    final notificationController = context.read<NotificationController>();
 
     if (authController.accessToken != null) {
       // Fetch subscription data
@@ -88,6 +93,59 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
       await paymentStatusController.fetchPaymentStatus(
         authController.accessToken!,
       );
+
+      // Fetch notification count
+      await notificationController.fetchNotifications(
+        authController.accessToken!,
+      );
+
+      // Check for pending feedback request
+      if (mounted) {
+        _checkForFeedbackRequest();
+      }
+    }
+  }
+
+  /// Check for pending feedback request notifications
+  void _checkForFeedbackRequest() {
+    final notificationController = context.read<NotificationController>();
+    final authController = context.read<AuthController>();
+
+    if (authController.accessToken == null) return;
+
+    final feedbackNotifications = notificationController.notifications.where(
+      (n) => !n.isRead && 
+             n.notificationType == 'delivery_feedback_request' &&
+             n.metadata?.feedbackSubmitted == false,
+    );
+
+    if (feedbackNotifications.isNotEmpty) {
+      final feedbackNotification = feedbackNotifications.first;
+      if (feedbackNotification.metadata != null) {
+        final deliveryId = feedbackNotification.metadata!.deliveryId;
+        final mealName = feedbackNotification.metadata!.mealName ?? 'meal';
+
+        if (deliveryId != null) {
+          // Show feedback popup
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => FeedbackPopup(
+              deliveryId: deliveryId,
+              mealName: mealName,
+              accessToken: authController.accessToken!,
+              onDismissed: () {
+                Navigator.pop(context);
+                // Mark notification as read so it doesn't pop up again
+                notificationController.markAsRead(
+                  authController.accessToken!,
+                  feedbackNotification.id,
+                );
+              },
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -1269,12 +1327,38 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                 children: [
                   Icon(Icons.info_outline, size: 16, color: warningText),
                   const SizedBox(width: 8),
-                  Text(
-                    '${pauseInfo.pausedDays} days paused • ${pauseInfo.pausedMealsCount} meals skipped',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: warningText,
-                      fontWeight: FontWeight.w500,
+                  Expanded(
+                    child: Text(
+                      '${pauseInfo.pausedDays} days paused • ${pauseInfo.pausedMealsCount} meals skipped',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: warningText,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const PauseDetailsScreen(),
+                        ),
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      'View Details',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: warningText,
+                        decoration: TextDecoration.underline,
+                      ),
                     ),
                   ),
                 ],
@@ -1322,6 +1406,66 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
               size: 20,
             ),
           ),
+        ),
+        // Notification Icon with Badge
+        Consumer<NotificationController>(
+          builder: (context, controller, child) {
+            return IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const NotificationScreen(),
+                  ),
+                );
+              },
+              icon: Stack(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: lightGreen,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_none_rounded,
+                      color: primaryGreen,
+                      size: 20,
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: AnimatedScale(
+                      scale: controller.unreadCount > 0 ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutBack,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 14,
+                          minHeight: 14,
+                        ),
+                        child: Text(
+                          '${controller.unreadCount}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
         const SizedBox(width: 8),
       ],
@@ -2782,7 +2926,32 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                   isSelected: true,
                   onTap: () => Navigator.pop(context),
                 ),
-
+                _buildDrawerItem(
+                  icon: Icons.restaurant_menu_rounded,
+                  title: 'Menu Card',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MenuCardScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerItem(
+                  icon: Icons.pause_circle_outline_rounded,
+                  title: 'Pause Details',
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const PauseDetailsScreen(),
+                      ),
+                    );
+                  },
+                ),
                 _buildDrawerItem(
                   icon: Icons.location_on_outlined,
                   title: 'Delivery Address',
@@ -2822,16 +2991,37 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                     );
                   },
                 ),
-                _buildDrawerItem(
-                  icon: Icons.notifications_outlined,
-                  title: 'Notifications',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const NotificationScreen(),
-                      ),
+                Consumer<NotificationController>(
+                  builder: (context, controller, child) {
+                    return _buildDrawerItem(
+                      icon: Icons.notifications_outlined,
+                      title: 'Notifications',
+                      trailing: controller.unreadCount > 0
+                          ? Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${controller.unreadCount}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            )
+                          : null,
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const NotificationScreen(),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -2950,6 +3140,7 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
     required String title,
     required VoidCallback onTap,
     bool isSelected = false,
+    Widget? trailing,
   }) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -2971,6 +3162,7 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
             color: isSelected ? primaryGreen : textPrimary,
           ),
         ),
+        trailing: trailing,
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),

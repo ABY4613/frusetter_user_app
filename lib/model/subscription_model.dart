@@ -465,12 +465,14 @@ class PauseInfo {
   final bool isPaused;
   final String label;
   final int pausedDays;
+  final List<PausedMeal> pausedMeals;
   final int pausedMealsCount;
 
   PauseInfo({
     required this.isPaused,
     required this.label,
     required this.pausedDays,
+    required this.pausedMeals,
     required this.pausedMealsCount,
   });
 
@@ -479,6 +481,11 @@ class PauseInfo {
       isPaused: json['isPaused'] ?? false,
       label: json['label'] ?? '',
       pausedDays: json['pausedDays'] ?? 0,
+      pausedMeals:
+          (json['pausedMeals'] as List<dynamic>?)
+              ?.map((e) => PausedMeal.fromJson(e))
+              .toList() ??
+          [],
       pausedMealsCount: json['pausedMealsCount'] ?? 0,
     );
   }
@@ -488,12 +495,85 @@ class PauseInfo {
       'isPaused': isPaused,
       'label': label,
       'pausedDays': pausedDays,
+      'pausedMeals': pausedMeals.map((e) => e.toJson()).toList(),
       'pausedMealsCount': pausedMealsCount,
     };
   }
 
   /// Check if there are any paused days or meals
   bool get hasPausedData => pausedDays > 0 || pausedMealsCount > 0;
+}
+
+/// Details of a paused meal
+class PausedMeal {
+  final String id;
+  final String deliveryDate;
+  final String mealName;
+  final String mealType;
+
+  PausedMeal({
+    required this.id,
+    required this.deliveryDate,
+    required this.mealName,
+    required this.mealType,
+  });
+
+  factory PausedMeal.fromJson(Map<String, dynamic> json) {
+    return PausedMeal(
+      id: json['id'] ?? '',
+      deliveryDate: json['delivery_date'] ?? '',
+      mealName: json['meal_name'] ?? '',
+      mealType: json['meal_type'] ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'delivery_date': deliveryDate,
+      'meal_name': mealName,
+      'meal_type': mealType,
+    };
+  }
+
+  /// Format delivery date
+  String get formattedDate {
+    if (deliveryDate.isEmpty) return '';
+    try {
+      final date = DateTime.parse(deliveryDate);
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return '${months[date.month - 1]} ${date.day}, ${date.year}';
+    } catch (e) {
+      return deliveryDate;
+    }
+  }
+
+  /// Get meal type icon
+  dynamic get icon {
+    switch (mealType.toLowerCase()) {
+      case 'breakfast':
+        return 0xe293; // Icons.free_breakfast_rounded
+      case 'lunch':
+        return 0xe3d0; // Icons.lunch_dining_rounded
+      case 'dinner':
+        return 0xe1f4; // Icons.dinner_dining_rounded
+      default:
+        return 0xe532; // Icons.restaurant_rounded
+    }
+  }
 }
 
 /// Cut-off information for subscription modifications
