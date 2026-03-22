@@ -560,20 +560,6 @@ class PausedMeal {
       return deliveryDate;
     }
   }
-
-  /// Get meal type icon
-  dynamic get icon {
-    switch (mealType.toLowerCase()) {
-      case 'breakfast':
-        return 0xe293; // Icons.free_breakfast_rounded
-      case 'lunch':
-        return 0xe3d0; // Icons.lunch_dining_rounded
-      case 'dinner':
-        return 0xe1f4; // Icons.dinner_dining_rounded
-      default:
-        return 0xe532; // Icons.restaurant_rounded
-    }
-  }
 }
 
 /// Cut-off information for subscription modifications

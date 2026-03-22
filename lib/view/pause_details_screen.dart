@@ -220,8 +220,21 @@ class PauseDetailsScreen extends StatelessWidget {
   }
 
   Widget _buildPausedMealCard(PausedMeal meal) {
-    final IconData mealIcon = IconData(meal.icon as int, fontFamily: 'MaterialIcons');
-    
+    IconData mealIcon;
+    switch (meal.mealType.toLowerCase()) {
+      case 'breakfast':
+        mealIcon = Icons.free_breakfast_rounded;
+        break;
+      case 'lunch':
+        mealIcon = Icons.lunch_dining_rounded;
+        break;
+      case 'dinner':
+        mealIcon = Icons.dinner_dining_rounded;
+        break;
+      default:
+        mealIcon = Icons.restaurant_rounded;
+    }
+
     Color typeColor;
     switch (meal.mealType.toLowerCase()) {
       case 'breakfast':

@@ -1,7 +1,7 @@
 /// API Constants for Frusette Customer App
 class ApiConstants {
   // Base URL
-  static const String baseUrl = 'https://frusette-backend-ym62.onrender.com';
+  static const String baseUrl = 'https://api.frusette.com';
 
   // API Version
   static const String apiVersion = '/v1';
@@ -45,7 +45,8 @@ class ApiConstants {
   static const String notifications = '/customer/notifications';
   static const String feedback = '/customer/feedback';
   static const String mealAddress = '/customer/meals/address';
-  static String markNotificationRead(String id) => '/customer/notifications/$id/read';
+  static String markNotificationRead(String id) =>
+      '/customer/notifications/$id/read';
 
   // Helper method to get full URL
   static String getUrl(String endpoint) => '$apiBaseUrl$endpoint';
