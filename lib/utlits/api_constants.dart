@@ -22,6 +22,7 @@ class ApiConstants {
   // Subscription Endpoints
   static const String subscriptions = '/subscriptions';
   static const String activeSubscription = '/subscriptions/active';
+  static const String subscriptionPlan = '/customer/subscription/plan';
   static const String subscriptionManage = '/customer/subscription/manage';
   static const String subscriptionPause = '/customer/subscription/pause';
   static const String subscriptionResume = '/customer/subscription/resume';
@@ -45,6 +46,7 @@ class ApiConstants {
   static const String notifications = '/customer/notifications';
   static const String feedback = '/customer/feedback';
   static const String mealAddress = '/customer/meals/address';
+  static const String mealAddresses = '/customer/meals/addresses';
   static String markNotificationRead(String id) =>
       '/customer/notifications/$id/read';
 

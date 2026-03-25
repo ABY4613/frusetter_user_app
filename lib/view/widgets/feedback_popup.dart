@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 import '../../model/feedback_model.dart';
 import '../../utlits/feedback_service.dart';
+import '../../controller/notification_controller.dart';
 
 class FeedbackPopup extends StatefulWidget {
   final String deliveryId;
@@ -292,6 +294,14 @@ class _FeedbackPopupState extends State<FeedbackPopup> {
       final messenger = ScaffoldMessenger.of(context);
       
       if (success) {
+        // Mark as submitted in local state to prevent multiple popups
+        try {
+          final notificationController = context.read<NotificationController>();
+          notificationController.markFeedbackAsSubmitted(widget.accessToken, widget.deliveryId);
+        } catch (e) {
+          debugPrint('FeedbackPopup: Could not notify NotificationController: $e');
+        }
+
         messenger.showSnackBar(
           const SnackBar(
             content: Text('Thank you! Your feedback helps us improve. ✨'),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../controller/auth_controller.dart';
+import '../utlits/api_constants.dart';
 
 // Color constants matching the app theme
 const Color primaryGreen = Color(0xFF8AC53D);
@@ -12,32 +13,6 @@ const Color textSecondary = Color(0xFF6B7280);
 const Color cardBorder = Color(0xFFE5E7EB);
 const Color backgroundColor = Color(0xFFFAFAFA);
 
-class UpcomingMeal {
-  final String id;
-  final String date;
-  final String mealType;
-  final String mealName;
-  final String status;
-
-  UpcomingMeal({
-    required this.id,
-    required this.date,
-    required this.mealType,
-    required this.mealName,
-    required this.status,
-  });
-
-  factory UpcomingMeal.fromJson(Map<String, dynamic> json) {
-    return UpcomingMeal(
-      id: json['ID'] ?? '',
-      date: json['DeliveryDate'] ?? '',
-      mealType: json['MealType'] ?? '',
-      mealName: json['meal_name'] ?? '',
-      status: json['Status'] ?? '',
-    );
-  }
-}
-
 class MenuCardScreen extends StatefulWidget {
   const MenuCardScreen({super.key});
 
@@ -45,18 +20,21 @@ class MenuCardScreen extends StatefulWidget {
   State<MenuCardScreen> createState() => _MenuCardScreenState();
 }
 
-class _MenuCardScreenState extends State<MenuCardScreen> {
+class _MenuCardScreenState extends State<MenuCardScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = true;
   String? _errorMessage;
-  List<UpcomingMeal> _upcomingMeals = [];
+  Map<String, dynamic>? _monthlyMenu;
+  String _planName = "Universal Meal Plan";
+  TabController? _tabController;
 
   @override
   void initState() {
     super.initState();
-    _fetchUpcomingMeals();
+    _fetchMenuData();
   }
 
-  Future<void> _fetchUpcomingMeals() async {
+  Future<void> _fetchMenuData() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -70,22 +48,24 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
         throw Exception('Not authenticated');
       }
 
-      final url = Uri.parse('https://frusette-backend-ym62.onrender.com/v1/customer/meals/upcoming');
+      final url = Uri.parse(ApiConstants.getUrl(ApiConstants.subscriptionPlan));
       final response = await http.get(
         url,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
+        headers: ApiConstants.authHeaders(token),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['data'] != null) {
-          final List<dynamic> mealsData = data['data'];
+          final planData = data['data'];
           setState(() {
-            _upcomingMeals = mealsData.map((e) => UpcomingMeal.fromJson(e)).toList();
+            _monthlyMenu = planData['monthly_menu'] ?? planData['monthlyMenu'];
+            _planName = planData['name'] ?? "Universal Meal Plan";
             _isLoading = false;
+            
+            if (_monthlyMenu != null) {
+               _tabController = TabController(length: _monthlyMenu!.length, vsync: this);
+            }
           });
         } else {
           throw Exception('Failed to load menu data');
@@ -103,18 +83,10 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
     }
   }
 
-  String _formatDateString(String dateStr) {
-    if (dateStr.isEmpty) return '';
-    try {
-      final parsed = DateTime.parse(dateStr);
-      final months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ];
-      return '${months[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
-    } catch (_) {
-      return dateStr.split('T').first;
-    }
+  @override
+  void dispose() {
+    _tabController?.dispose();
+    super.dispose();
   }
 
   @override
@@ -134,18 +106,43 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
         icon: const Icon(Icons.arrow_back, color: textPrimary),
         onPressed: () => Navigator.pop(context),
       ),
-      title: const Text(
-        'Menu Card',
-        style: TextStyle(
-          color: textPrimary,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Menu Card',
+            style: TextStyle(
+              color: textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (!_isLoading && _planName.isNotEmpty)
+            Text(
+              _planName,
+              style: const TextStyle(
+                color: primaryGreen,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+        ],
       ),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(height: 1, color: cardBorder),
-      ),
+      bottom: _monthlyMenu != null && _tabController != null
+          ? TabBar(
+              controller: _tabController,
+              isScrollable: true,
+              labelColor: primaryGreen,
+              unselectedLabelColor: textSecondary,
+              indicatorColor: primaryGreen,
+              tabs: _monthlyMenu!.keys.map((week) {
+                return Tab(text: week.replaceAll('week', 'Week '));
+              }).toList(),
+            )
+          : PreferredSize(
+              preferredSize: const Size.fromHeight(1),
+              child: Container(height: 1, color: cardBorder),
+            ),
     );
   }
 
@@ -155,7 +152,169 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
     }
 
     if (_errorMessage != null) {
-      return Center(
+      return _buildErrorView();
+    }
+
+    if (_monthlyMenu == null || _monthlyMenu!.isEmpty) {
+      return _buildEmptyView();
+    }
+
+    return TabBarView(
+      controller: _tabController,
+      children: _monthlyMenu!.keys.map((weekKey) {
+        final weekData = _monthlyMenu![weekKey] as Map<String, dynamic>;
+        return _buildWeekMenu(weekData);
+      }).toList(),
+    );
+  }
+
+  Widget _buildWeekMenu(Map<String, dynamic> weekData) {
+    // Sort days to ensure they follow Monday-Sunday order
+    final dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    final sortedDays = weekData.keys.toList()
+      ..sort((a, b) => dayOrder.indexOf(a.toLowerCase()).compareTo(dayOrder.indexOf(b.toLowerCase())));
+
+    return RefreshIndicator(
+      color: primaryGreen,
+      onRefresh: _fetchMenuData,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: sortedDays.length,
+        itemBuilder: (context, index) {
+          final day = sortedDays[index];
+          final dayData = weekData[day] as Map<String, dynamic>;
+          return _buildDayCard(day, dayData);
+        },
+      ),
+    );
+  }
+
+  Widget _buildDayCard(String day, Map<String, dynamic> dayData) {
+    // Collect non-null meals
+    final meals = <MapEntry<String, dynamic>>[];
+    if (dayData['breakfast'] != null) meals.add(MapEntry('breakfast', dayData['breakfast']));
+    if (dayData['lunch'] != null) meals.add(MapEntry('lunch', dayData['lunch']));
+    if (dayData['dinner'] != null) meals.add(MapEntry('dinner', dayData['dinner']));
+
+    if (meals.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: primaryGreen,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    day.toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: cardBorder),
+          ...meals.map((entry) => _buildMealItem(entry.key, entry.value)).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMealItem(String type, dynamic meal) {
+    final name = meal['name'] ?? 'Unnamed Meal';
+    
+    IconData icon;
+    Color iconColor;
+    switch (type.toLowerCase()) {
+      case 'breakfast':
+        icon = Icons.wb_sunny_outlined;
+        iconColor = Colors.orange;
+        break;
+      case 'lunch':
+        icon = Icons.lunch_dining_rounded;
+        iconColor = Colors.green;
+        break;
+      case 'dinner':
+        icon = Icons.nightlight_round_outlined;
+        iconColor = Colors.indigo;
+        break;
+      default:
+        icon = Icons.restaurant_menu;
+        iconColor = primaryGreen;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  type.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: textSecondary.withOpacity(0.7),
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -173,7 +332,7 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: _fetchUpcomingMeals,
+              onPressed: _fetchMenuData,
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
               style: ElevatedButton.styleFrom(
@@ -187,154 +346,22 @@ class _MenuCardScreenState extends State<MenuCardScreen> {
             ),
           ],
         ),
-      );
-    }
-
-    if (_upcomingMeals.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-             Icon(Icons.restaurant_menu, size: 80, color: Colors.grey.shade300),
-             const SizedBox(height: 16),
-             const Text('No upcoming meals', style: TextStyle(fontSize: 18, color: textPrimary, fontWeight: FontWeight.w600)),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      color: primaryGreen,
-      onRefresh: _fetchUpcomingMeals,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _upcomingMeals.length,
-        itemBuilder: (context, index) {
-          return _buildMealCard(_upcomingMeals[index]);
-        },
       ),
     );
   }
 
-  Widget _buildMealCard(UpcomingMeal meal) {
-    String formattedDate = _formatDateString(meal.date);
-
-    // Determine status color
-    Color statusColor = textSecondary;
-    Color statusBg = Colors.grey.shade100;
-    
-    if (meal.status.toLowerCase() == 'delivered') {
-      statusColor = Colors.green.shade700;
-      statusBg = Colors.green.shade50;
-    } else if (meal.status.toLowerCase() == 'scheduled') {
-      statusColor = Colors.blue.shade700;
-      statusBg = Colors.blue.shade50;
-    } else if (meal.status.toLowerCase() == 'ready') {
-      statusColor = Colors.orange.shade700;
-      statusBg = Colors.orange.shade50;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+  Widget _buildEmptyView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.restaurant_menu, size: 80, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          const Text(
+            'No menu details available',
+            style: TextStyle(fontSize: 18, color: textPrimary, fontWeight: FontWeight.w600),
           ),
         ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: lightGreen,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        meal.mealType.toLowerCase() == 'lunch' ? Icons.lunch_dining_rounded : Icons.dinner_dining_rounded,
-                        color: primaryGreen,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          meal.mealType.toUpperCase(),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: textSecondary,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          formattedDate,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: textPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: statusBg,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    meal.status.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: statusColor,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Divider(height: 1, color: cardBorder),
-            const SizedBox(height: 16),
-            // Dish Row
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    meal.mealName,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: primaryGreen,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

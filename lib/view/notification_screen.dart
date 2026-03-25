@@ -600,10 +600,14 @@ class _NotificationScreenState extends State<NotificationScreen>
       }
     }
 
-    // Special handling for feedback request
+    // Special handling for feedback request 
     if (notification.notificationType == 'delivery_feedback_request' &&
         notification.metadata?.deliveryId != null &&
-        notification.metadata?.feedbackSubmitted == false) {
+        notification.metadata?.feedbackSubmitted == false &&
+        // Double check persistent cache
+        !notificationController.isFeedbackSubmitted(notification.metadata?.deliveryId ?? '') &&
+        // Only show for recent deliveries (similar to dashboard)
+        DateTime.now().difference(notification.createdAt).inHours < 24) {
       showDialog(
         context: context,
         barrierDismissible: false,

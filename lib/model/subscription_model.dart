@@ -128,17 +128,21 @@ class SubscriptionPlan {
       id: json['id'] ?? '',
       name: json['name'] ?? '',
       description: json['description'] ?? '',
-      planType: json['planType'] ?? 'weekly',
-      durationDays: json['durationDays'] ?? 0,
-      mealsPerDay: json['mealsPerDay'] ?? 0,
+      planType: json['planType'] ?? json['plan_type'] ?? 'weekly',
+      durationDays: json['durationDays'] ?? json['duration_days'] ?? 0,
+      mealsPerDay: json['mealsPerDay'] ?? json['meals_per_day'] ?? 0,
       mealTypes:
-          (json['mealTypes'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          [],
+          ((json['mealTypes'] ?? json['meal_types']) as List<dynamic>?)
+                  ?.map((e) => e.toString())
+                  .toList()
+                  .cast<String>() ??
+              [],
       price: (json['price'] ?? 0).toDouble(),
-      weeklyMenu: json['weeklyMenu'] as Map<String, dynamic>?,
-      monthlyMenu: json['monthlyMenu'] as Map<String, dynamic>?,
+      weeklyMenu:
+          (json['weeklyMenu'] ?? json['weekly_menu']) as Map<String, dynamic>?,
+      monthlyMenu:
+          (json['monthlyMenu'] ?? json['monthly_menu'])
+              as Map<String, dynamic>?,
     );
   }
 

@@ -36,7 +36,7 @@ class FrusetteApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AddressController()),
         ChangeNotifierProvider(create: (_) => PaymentStatusController()),
         ChangeNotifierProvider(create: (_) => AddOnController()),
-        ChangeNotifierProvider(create: (_) => NotificationController()),
+        ChangeNotifierProvider(create: (_) => NotificationController()..init()),
       ],
       child: MaterialApp(
         title: 'Frusette',

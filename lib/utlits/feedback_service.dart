@@ -29,6 +29,10 @@ class FeedbackService {
         final data = jsonDecode(response.body);
         // If statusCode is 2xx, we consider it a success even if 'success' field is missing
         return data['success'] ?? true;
+      } else if (response.statusCode == 409) {
+        // Feedback already submitted - treat as success for UI to mark as done
+        debugPrint('FeedbackService: Feedback already submitted for this delivery');
+        return true;
       } else {
         debugPrint('FeedbackService: Submission failed with status ${response.statusCode}');
         return false;

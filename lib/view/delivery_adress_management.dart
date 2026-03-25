@@ -7,6 +7,7 @@ import '../controller/auth_controller.dart';
 import '../controller/subscription_controller.dart';
 import '../model/address_model.dart';
 import '../utlits/meal_service.dart';
+import '../model/meal_schedule_model.dart';
 import 'location_picker_screen.dart';
 
 class DeliveryAddressManagement extends StatefulWidget {
@@ -54,8 +55,64 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
     // Initialize address controller with token and fetch addresses
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeAddressController();
-      _generateSchedule();
+      _loadScheduleFromApi();
     });
+  }
+
+  Future<void> _loadScheduleFromApi() async {
+    final authController = context.read<AuthController>();
+    final token = authController.accessToken;
+    
+    if (token == null) {
+      _generateSchedule();
+      return;
+    }
+
+    // Optional: show a loading state for schedule if needed
+    final schedules = await MealService.getMealSchedules(accessToken: token);
+    
+    if (schedules != null && schedules.isNotEmpty) {
+      // Group by date
+      Map<String, List<MealAddressSetting>> grouped = {};
+      
+      for (MealSchedule s in schedules) {
+        String dateStr = DateFormat('yyyy-MM-dd').format(s.deliveryDate);
+        if (!grouped.containsKey(dateStr)) {
+          grouped[dateStr] = [];
+        }
+        
+        // Check if this meal type already exists for this date (avoid duplicates)
+        bool exists = grouped[dateStr]!.any((setting) => setting.mealType.toLowerCase() == s.mealType.toLowerCase());
+        
+        if (!exists) {
+          grouped[dateStr]!.add(MealAddressSetting(
+            mealType: s.mealType,
+            addressId: s.address?.id,
+            addressLabel: s.address?.label ?? 'Select Address',
+          ));
+        }
+      }
+      
+      List<ScheduleItem> newSchedule = [];
+      grouped.forEach((dateStr, settings) {
+        newSchedule.add(ScheduleItem(
+          date: DateTime.parse(dateStr),
+          settings: settings,
+        ));
+      });
+      
+      // Sort by date
+      newSchedule.sort((a, b) => a.date.compareTo(b.date));
+      
+      if (mounted) {
+        setState(() {
+          _schedule = newSchedule;
+        });
+      }
+    } else {
+      // Fallback to local generation if API returns empty or fails
+      _generateSchedule();
+    }
   }
 
   void _generateSchedule() {
@@ -125,13 +182,19 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
             child: Column(
               children: [
                 Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                  child: RefreshIndicator(
+                    onRefresh: () async {
+                      await addressController.fetchAddresses();
+                      await _loadScheduleFromApi();
+                    },
+                    color: primaryGreen,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                           const SizedBox(height: 20),
                           // My Locations Section
                           _buildMyLocationsSection(addressController),
@@ -147,6 +210,7 @@ class _DeliveryAddressManagementState extends State<DeliveryAddressManagement>
                     ),
                   ),
                 ),
+              ),
                 // Update Schedule Button
                 _buildUpdateButton(),
               ],

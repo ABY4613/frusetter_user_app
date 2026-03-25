@@ -114,9 +114,16 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
     if (authController.accessToken == null) return;
 
     final feedbackNotifications = notificationController.notifications.where(
-      (n) => !n.isRead && 
-             n.notificationType == 'delivery_feedback_request' &&
-             n.metadata?.feedbackSubmitted == false,
+      (n) =>
+          !n.isRead &&
+          n.notificationType == 'delivery_feedback_request' &&
+          n.metadata?.feedbackSubmitted == false &&
+          // Extra safety - check our persistent on-device cache
+          !notificationController.isFeedbackSubmitted(
+            n.metadata?.deliveryId ?? '',
+          ) &&
+          // Only show for reasonably recent deliveries (last 24 hours)
+          DateTime.now().difference(n.createdAt).inHours < 24,
     );
 
     if (feedbackNotifications.isNotEmpty) {
@@ -136,10 +143,10 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
               accessToken: authController.accessToken!,
               onDismissed: () {
                 Navigator.pop(context);
-                // Mark notification as read so it doesn't pop up again
-                notificationController.markAsRead(
+                // Mark ALL notifications for this delivery as read so it doesn't pop up again
+                notificationController.markAllForDeliveryAsRead(
                   authController.accessToken!,
-                  feedbackNotification.id,
+                  deliveryId,
                 );
               },
             ),
@@ -2965,19 +2972,19 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
                     );
                   },
                 ),
-                _buildDrawerItem(
-                  icon: Icons.local_shipping_outlined,
-                  title: 'Track Order',
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const LiveOrderTrack(),
-                      ),
-                    );
-                  },
-                ),
+                // _buildDrawerItem(
+                //   icon: Icons.local_shipping_outlined,
+                //   title: 'Track Order',
+                //   onTap: () {
+                //     Navigator.pop(context);
+                //     Navigator.push(
+                //       context,
+                //       MaterialPageRoute(
+                //         builder: (context) => const LiveOrderTrack(),
+                //       ),
+                //     );
+                //   },
+                // ),
                 _buildDrawerItem(
                   icon: Icons.star_border_rounded,
                   title: 'Meals Feedback',

@@ -58,6 +58,28 @@ class NotificationItem {
     required this.createdAt,
   });
 
+  NotificationItem copyWith({
+    String? id,
+    String? userId,
+    String? title,
+    String? message,
+    String? notificationType,
+    bool? isRead,
+    NotificationMetadata? metadata,
+    DateTime? createdAt,
+  }) {
+    return NotificationItem(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      title: title ?? this.title,
+      message: message ?? this.message,
+      notificationType: notificationType ?? this.notificationType,
+      isRead: isRead ?? this.isRead,
+      metadata: metadata ?? this.metadata,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   factory NotificationItem.fromJson(Map<String, dynamic> json) {
     return NotificationItem(
       id: json['ID'] ?? '',
@@ -90,6 +112,22 @@ class NotificationMetadata {
     this.scheduledMealId,
     this.feedbackSubmitted = false,
   });
+
+  NotificationMetadata copyWith({
+    String? deliveryId,
+    String? mealName,
+    String? mealType,
+    String? scheduledMealId,
+    bool? feedbackSubmitted,
+  }) {
+    return NotificationMetadata(
+      deliveryId: deliveryId ?? this.deliveryId,
+      mealName: mealName ?? this.mealName,
+      mealType: mealType ?? this.mealType,
+      scheduledMealId: scheduledMealId ?? this.scheduledMealId,
+      feedbackSubmitted: feedbackSubmitted ?? this.feedbackSubmitted,
+    );
+  }
 
   factory NotificationMetadata.fromJson(Map<String, dynamic> json) {
     return NotificationMetadata(
