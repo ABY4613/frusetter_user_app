@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 
 class MealsFeedback extends StatelessWidget {
-  const MealsFeedback({super.key});
+  final String mealId;
+  final String mealName;
+
+  const MealsFeedback({
+    super.key,
+    this.mealId = '',
+    this.mealName = '',
+  });
 
   static const Color primaryGreen = Color(0xFF8AC53D);
   static const Color textPrimary = Color(0xFF1F2937);

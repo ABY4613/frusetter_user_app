@@ -8,7 +8,7 @@ class SubscriptionManageResponse {
 
   factory SubscriptionManageResponse.fromJson(Map<String, dynamic> json) {
     return SubscriptionManageResponse(
-      success: json['success'] ?? false,
+      success: json['success'] ?? json['Success'] ?? false,
       data: SubscriptionManageData.fromJson(json['data'] ?? {}),
     );
   }
@@ -25,6 +25,10 @@ class SubscriptionManageData {
   final SubscriptionDetails subscription;
   final SubscriptionProjection subscriptionProjection;
   final CutOffInfo? cutOffInfo;
+  final List<TodayMeal> todayMeals;
+  final FeedbackPopupInfo? feedbackPopup;
+  final String? subscriptionId;
+  final String? screen;
 
   SubscriptionManageData({
     this.user,
@@ -32,10 +36,15 @@ class SubscriptionManageData {
     required this.subscription,
     required this.subscriptionProjection,
     this.cutOffInfo,
+    this.todayMeals = const [],
+    this.feedbackPopup,
+    this.subscriptionId,
+    this.screen,
   });
 
   factory SubscriptionManageData.fromJson(Map<String, dynamic> json) {
     return SubscriptionManageData(
+      subscriptionId: json['subscription_id']?.toString() ?? json['subscriptionId']?.toString(),
       user: json['user'] != null
           ? SubscriptionUser.fromJson(json['user'])
           : null,
@@ -44,11 +53,22 @@ class SubscriptionManageData {
           : null,
       subscription: SubscriptionDetails.fromJson(json['subscription'] ?? {}),
       subscriptionProjection: SubscriptionProjection.fromJson(
-        json['subscriptionProjection'] ?? {},
+        json['subscription_projection'] ?? json['subscriptionProjection'] ?? {},
       ),
-      cutOffInfo: json['cutOffInfo'] != null
-          ? CutOffInfo.fromJson(json['cutOffInfo'])
+      cutOffInfo: (json['cut_off_info'] ?? json['cutOffInfo']) != null
+          ? CutOffInfo.fromJson(json['cut_off_info'] ?? json['cutOffInfo'])
           : null,
+      todayMeals: (json['today_meals'] as List<dynamic>? ??
+                  json['todayMeals'] as List<dynamic>?)
+              ?.map((e) => TodayMeal.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          <TodayMeal>[],
+      feedbackPopup: (json['feedback_popup'] ?? json['feedbackPopup']) != null
+          ? FeedbackPopupInfo.fromJson(
+              json['feedback_popup'] ?? json['feedbackPopup'],
+            )
+          : null,
+      screen: json['screen'],
     );
   }
 
@@ -59,6 +79,10 @@ class SubscriptionManageData {
       'subscription': subscription.toJson(),
       'subscriptionProjection': subscriptionProjection.toJson(),
       'cutOffInfo': cutOffInfo?.toJson(),
+      'todayMeals': todayMeals.map((e) => e.toJson()).toList(),
+      'feedbackPopup': feedbackPopup?.toJson(),
+      'subscription_id': subscriptionId,
+      'screen': screen,
     };
   }
 }
@@ -80,7 +104,7 @@ class SubscriptionUser {
   factory SubscriptionUser.fromJson(Map<String, dynamic> json) {
     return SubscriptionUser(
       id: json['id'] ?? '',
-      fullName: json['fullName'] ?? '',
+      fullName: json['full_name'] ?? json['fullName'] ?? '',
       email: json['email'] ?? '',
       phone: json['phone'] ?? '',
     );
@@ -131,13 +155,14 @@ class SubscriptionPlan {
       planType: json['planType'] ?? json['plan_type'] ?? 'weekly',
       durationDays: json['durationDays'] ?? json['duration_days'] ?? 0,
       mealsPerDay: json['mealsPerDay'] ?? json['meals_per_day'] ?? 0,
-      mealTypes:
-          ((json['mealTypes'] ?? json['meal_types']) as List<dynamic>?)
-                  ?.map((e) => e.toString())
-                  .toList()
-                  .cast<String>() ??
-              [],
-      price: (json['price'] ?? 0).toDouble(),
+      mealTypes: (json['meal_types'] as List<dynamic>? ??
+                  json['mealTypes'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          <String>[],
+      price: (json['price'] ?? 0) is String
+          ? double.tryParse(json['price'].toString()) ?? 0.0
+          : (json['price'] ?? 0).toDouble(),
       weeklyMenu:
           (json['weeklyMenu'] ?? json['weekly_menu']) as Map<String, dynamic>?,
       monthlyMenu:
@@ -207,12 +232,13 @@ class SubscriptionDetails {
     return SubscriptionDetails(
       id: json['id'] ?? '',
       status: json['status'] ?? '',
-      paymentStatus: json['paymentStatus'] ?? '',
-      totalAmount: (json['totalAmount'] ?? 0).toDouble(),
-      amountPaid: (json['amountPaid'] ?? 0).toDouble(),
+      paymentStatus: json['payment_status'] ?? json['paymentStatus'] ?? '',
+      totalAmount:
+          (json['total_amount'] ?? json['totalAmount'] ?? 0).toDouble(),
+      amountPaid: (json['amount_paid'] ?? json['amountPaid'] ?? 0).toDouble(),
       actions: SubscriptionActions.fromJson(json['actions'] ?? {}),
       dates: SubscriptionDates.fromJson(json['dates'] ?? {}),
-      mealInfo: MealInfo.fromJson(json['mealInfo'] ?? {}),
+      mealInfo: MealInfo.fromJson(json['meal_info'] ?? json['mealInfo'] ?? {}),
     );
   }
 
@@ -268,8 +294,8 @@ class SubscriptionActions {
 
   factory SubscriptionActions.fromJson(Map<String, dynamic> json) {
     return SubscriptionActions(
-      pausePlan: json['pausePlan'] ?? false,
-      resumePlan: json['resumePlan'] ?? false,
+      pausePlan: json['pause_plan'] ?? json['pausePlan'] ?? false,
+      resumePlan: json['resume_plan'] ?? json['resumePlan'] ?? false,
     );
   }
 
@@ -292,9 +318,11 @@ class SubscriptionDates {
 
   factory SubscriptionDates.fromJson(Map<String, dynamic> json) {
     return SubscriptionDates(
-      startDate: json['startDate'] ?? '',
-      originalEndDate: json['originalEndDate'] ?? '',
-      adjustedEndDate: json['adjustedEndDate'] ?? '',
+      startDate: json['start_date'] ?? json['startDate'] ?? '',
+      originalEndDate:
+          json['original_end_date'] ?? json['originalEndDate'] ?? '',
+      adjustedEndDate:
+          json['adjusted_end_date'] ?? json['adjustedEndDate'] ?? '',
     );
   }
 
@@ -372,10 +400,10 @@ class MealInfo {
 
   factory MealInfo.fromJson(Map<String, dynamic> json) {
     return MealInfo(
-      mealsPerDay: json['mealsPerDay'] ?? 0,
-      totalMeals: json['totalMeals'] ?? 0,
-      daysRemaining: json['daysRemaining'] ?? 0,
-      upcomingMeals: json['upcomingMeals'] ?? 0,
+      mealsPerDay: json['meals_per_day'] ?? json['mealsPerDay'] ?? 0,
+      totalMeals: json['total_meals'] ?? json['totalMeals'] ?? 0,
+      daysRemaining: json['days_remaining'] ?? json['daysRemaining'] ?? 0,
+      upcomingMeals: json['upcoming_meals'] ?? json['upcomingMeals'] ?? 0,
     );
   }
 
@@ -406,9 +434,10 @@ class SubscriptionProjection {
 
   factory SubscriptionProjection.fromJson(Map<String, dynamic> json) {
     return SubscriptionProjection(
-      currentEndDate: json['currentEndDate'] ?? '',
-      newEndDate: json['newEndDate'] ?? '',
-      pauseInfo: PauseInfo.fromJson(json['pauseInfo'] ?? {}),
+      currentEndDate:
+          json['current_end_date'] ?? json['currentEndDate'] ?? '',
+      newEndDate: json['new_end_date'] ?? json['newEndDate'] ?? '',
+      pauseInfo: PauseInfo.fromJson(json['pause_info'] ?? json['pauseInfo'] ?? {}),
     );
   }
 
@@ -482,15 +511,16 @@ class PauseInfo {
 
   factory PauseInfo.fromJson(Map<String, dynamic> json) {
     return PauseInfo(
-      isPaused: json['isPaused'] ?? false,
+      isPaused: json['is_paused'] ?? json['isPaused'] ?? false,
       label: json['label'] ?? '',
-      pausedDays: json['pausedDays'] ?? 0,
-      pausedMeals:
-          (json['pausedMeals'] as List<dynamic>?)
-              ?.map((e) => PausedMeal.fromJson(e))
+      pausedDays: json['paused_days'] ?? json['pausedDays'] ?? 0,
+      pausedMeals: (json['paused_meals'] as List<dynamic>? ??
+                  json['pausedMeals'] as List<dynamic>?)
+              ?.map((e) => PausedMeal.fromJson(e as Map<String, dynamic>))
               .toList() ??
-          [],
-      pausedMealsCount: json['pausedMealsCount'] ?? 0,
+          <PausedMeal>[],
+      pausedMealsCount:
+          json['paused_meals_count'] ?? json['pausedMealsCount'] ?? 0,
     );
   }
 
@@ -601,4 +631,68 @@ class CutOffInfo {
 
   /// Check if this is an info type
   bool get isInfo => type.toLowerCase() == 'info';
+}
+
+/// Model for today's meals status
+class TodayMeal {
+  final String mealType;
+  final String status;
+  final String? mealName;
+  final String? deliverySlot;
+  final String? id;
+  final bool canUnpause;
+  final bool canPause;
+
+  TodayMeal({
+    required this.mealType,
+    required this.status,
+    this.mealName,
+    this.deliverySlot,
+    this.id,
+    this.canUnpause = false,
+    this.canPause = false,
+  });
+
+  factory TodayMeal.fromJson(Map<String, dynamic> json) {
+    return TodayMeal(
+      mealType: json['meal_type'] ?? json['mealType'] ?? '',
+      status: json['status'] ?? '',
+      mealName: json['meal_name'] ?? json['mealName'],
+      deliverySlot: json['delivery_slot'] ?? json['deliverySlot'],
+      id: json['id'],
+      canUnpause: json['can_unpause'] ?? json['canUnpause'] ?? false,
+      canPause: json['can_pause'] ?? json['canPause'] ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'mealType': mealType,
+      'status': status,
+      'mealName': mealName,
+      'deliverySlot': deliverySlot,
+      'id': id,
+      'canUnpause': canUnpause,
+      'canPause': canPause,
+    };
+  }
+}
+
+/// Model for feedback popup info
+class FeedbackPopupInfo {
+  final bool show;
+  final dynamic meal;
+
+  FeedbackPopupInfo({required this.show, this.meal});
+
+  factory FeedbackPopupInfo.fromJson(Map<String, dynamic> json) {
+    return FeedbackPopupInfo(
+      show: json['show'] ?? false,
+      meal: json['meal'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {'show': show, 'meal': meal};
+  }
 }

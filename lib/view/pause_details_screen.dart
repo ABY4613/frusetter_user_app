@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../controller/subscription_controller.dart';
+import '../controller/auth_controller.dart';
 import '../model/subscription_model.dart';
 
 class PauseDetailsScreen extends StatelessWidget {
@@ -77,7 +78,7 @@ class PauseDetailsScreen extends StatelessWidget {
                     separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final meal = pauseInfo.pausedMeals[index];
-                      return _buildPausedMealCard(meal);
+                      return _buildPausedMealCard(context, meal);
                     },
                   ),
                   const SizedBox(height: 40),
@@ -219,7 +220,7 @@ class PauseDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPausedMealCard(PausedMeal meal) {
+  Widget _buildPausedMealCard(BuildContext context, PausedMeal meal) {
     IconData mealIcon;
     switch (meal.mealType.toLowerCase()) {
       case 'breakfast':
@@ -294,7 +295,7 @@ class PauseDetailsScreen extends StatelessWidget {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Icon(Icons.calendar_today_rounded, size: 12, color: textSecondary),
+                    const Icon(Icons.calendar_today_rounded, size: 12, color: textSecondary),
                     const SizedBox(width: 4),
                     Text(
                       meal.formattedDate,
@@ -326,23 +327,78 @@ class PauseDetailsScreen extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: warningYellow.withOpacity(0.6),
-              borderRadius: BorderRadius.circular(6),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'resume') {
+                _resumeMeal(context, meal);
+              }
+            },
+            icon: const Icon(Icons.more_vert_rounded, color: textSecondary),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text(
-              'PAUSED',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: warningText,
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'resume',
+                child: Row(
+                  children: [
+                    const Icon(Icons.play_circle_fill_rounded,
+                        color: primaryGreen, size: 20),
+                    const SizedBox(width: 12),
+                    const Text('Resume Meal', 
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  /// Resume a specific paused meal
+  Future<void> _resumeMeal(BuildContext context, PausedMeal meal) async {
+    final authController = context.read<AuthController>();
+    final subscriptionController = context.read<SubscriptionController>();
+
+    if (authController.accessToken == null) return;
+
+    // Show loading overlay
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: primaryGreen),
+      ),
+    );
+
+    // Call meal-specific unpause API
+    final success = await subscriptionController.unpauseMeal(
+      authController.accessToken!,
+      meal.id,
+    );
+
+    if (context.mounted) {
+      Navigator.pop(context); // Dismiss loading dialog
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Meal resumed successfully'),
+            backgroundColor: Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(subscriptionController.errorMessage ?? 'Failed to resume meal'),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 }

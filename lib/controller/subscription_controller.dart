@@ -19,6 +19,10 @@ class SubscriptionController extends ChangeNotifier {
   SubscriptionProjection? get projection =>
       _subscriptionData?.subscriptionProjection;
   CutOffInfo? get cutOffInfo => _subscriptionData?.cutOffInfo;
+  List<TodayMeal> get todayMeals => _subscriptionData?.todayMeals ?? [];
+  FeedbackPopupInfo? get feedbackPopup => _subscriptionData?.feedbackPopup;
+  String? get screen => _subscriptionData?.screen;
+  String? get subscriptionId => _subscriptionData?.subscriptionId ?? subscription?.id;
 
   // State getters
   bool get isLoading => _isLoading;
@@ -85,9 +89,15 @@ class SubscriptionController extends ChangeNotifier {
           return false;
         }
       } else {
-        final responseData = jsonDecode(response.body);
-        _errorMessage =
-            responseData['message'] ?? 'Failed to load subscription data';
+        String msg = 'Failed to load subscription data';
+        try {
+          final responseData = jsonDecode(response.body);
+          msg = responseData['message'] ?? msg;
+        } catch (_) {
+          // If body is not JSON (e.g. 404 page not found)
+          msg = 'Server error: ${response.statusCode}';
+        }
+        _errorMessage = msg;
         _isLoading = false;
         notifyListeners();
         return false;
@@ -95,6 +105,161 @@ class SubscriptionController extends ChangeNotifier {
     } catch (e) {
       debugPrint('SubscriptionController: Error fetching data: $e');
       _errorMessage = 'Network error. Please check your connection.';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Resume subscription for a single day with specific meal(s)
+  /// [date] - Date to resume (YYYY-MM-DD format)
+  /// [mealTypes] - List of meal types to resume: ['breakfast'], ['lunch'], ['dinner'], or multiple
+  Future<bool> resumeSingleDay(
+    String accessToken, {
+    required String date,
+    required List<String> mealTypes,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final url = ApiConstants.getUrl(ApiConstants.subscriptionResume);
+      final subId = subscriptionId;
+
+      debugPrint('SubscriptionController: Resuming single day at $url');
+      debugPrint(
+        'SubscriptionController: subId: $subId, date: $date, meal_types: $mealTypes',
+      );
+
+      final body = <String, dynamic>{
+        'subscription_id': subId,
+        'resume_type': 'single',
+        'date': date,
+        'meal_types': mealTypes,
+      };
+
+      final response = await http
+          .post(
+            Uri.parse(url),
+            headers: ApiConstants.authHeaders(accessToken),
+            body: jsonEncode(body),
+          )
+          .timeout(ApiConstants.requestTimeout);
+
+      debugPrint(
+        'SubscriptionController: Resume response status: ${response.statusCode}',
+      );
+      debugPrint(
+        'SubscriptionController: Resume response body: ${response.body}',
+      );
+
+      final responseData = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (responseData['success'] == true ||
+            responseData['status'] == 'success') {
+          // Refresh subscription data after resuming
+          await fetchSubscriptionData(accessToken);
+          return true;
+        }
+      }
+
+      _errorMessage =
+          responseData['message'] ?? responseData['error'] ?? 'Failed to resume meal';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      debugPrint('SubscriptionController: Error resuming meal: $e');
+      _errorMessage = 'Network error. Please try again.';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Unpause a specific meal by ID
+  Future<bool> unpauseMeal(String accessToken, String mealId) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final url = ApiConstants.getUrl(ApiConstants.mealUnpause(mealId));
+      debugPrint('SubscriptionController: Unpausing meal at $url');
+
+      final response = await http
+          .post(Uri.parse(url), headers: ApiConstants.authHeaders(accessToken))
+          .timeout(ApiConstants.requestTimeout);
+
+      debugPrint(
+        'SubscriptionController: Unpause response status: ${response.statusCode}',
+      );
+      debugPrint(
+        'SubscriptionController: Unpause response body: ${response.body}',
+      );
+
+      final responseData = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (responseData['success'] == true) {
+          // Refresh subscription data after unpausing
+          await fetchSubscriptionData(accessToken);
+          return true;
+        }
+      }
+
+      _errorMessage =
+          responseData['message'] ?? responseData['error'] ?? 'Failed to unpause meal';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      debugPrint('SubscriptionController: Error unpausing meal: $e');
+      _errorMessage = 'Network error. Please try again.';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Pause a specific meal by ID
+  Future<bool> pauseMeal(String accessToken, String mealId) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final url = ApiConstants.getUrl(ApiConstants.mealPause(mealId));
+      debugPrint('SubscriptionController: Pausing meal at $url');
+
+      final response = await http
+          .post(Uri.parse(url), headers: ApiConstants.authHeaders(accessToken))
+          .timeout(ApiConstants.requestTimeout);
+
+      debugPrint(
+        'SubscriptionController: Pause response status: ${response.statusCode}',
+      );
+      debugPrint(
+        'SubscriptionController: Pause response body: ${response.body}',
+      );
+
+      final responseData = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (responseData['success'] == true) {
+          // Refresh subscription data after pausing
+          await fetchSubscriptionData(accessToken);
+          return true;
+        }
+      }
+
+      _errorMessage =
+          responseData['message'] ?? responseData['error'] ?? 'Failed to pause meal';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      debugPrint('SubscriptionController: Error pausing meal: $e');
+      _errorMessage = 'Network error. Please try again.';
       _isLoading = false;
       notifyListeners();
       return false;

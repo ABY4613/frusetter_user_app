@@ -41,9 +41,12 @@ class _AddOnsListScreenState extends State<AddOnsListScreen> {
 
   Future<void> _addAllToCart() async {
     final controller = context.read<AddOnController>();
+    final authController = context.read<AuthController>();
+    final userName = authController.user?.fullName ?? 'Customer';
 
     // Build order message
-    String message = '*New Add-on Order*\n\n';
+    String message = '*New Add-on Order*\n';
+    message += '*Customer:* $userName\n\n';
     double totalPrice = 0;
     int totalItems = 0;
 
@@ -70,7 +73,7 @@ class _AddOnsListScreenState extends State<AddOnsListScreen> {
     message += '*Total Amount:* ₹${totalPrice.toStringAsFixed(0)}';
 
     // WhatsApp number
-    const phoneNumber = '919656091550';
+    const phoneNumber = '919895960067';
 
     // Encode message for URL
     final encodedMessage = Uri.encodeComponent(message);

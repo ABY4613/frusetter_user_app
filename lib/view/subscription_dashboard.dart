@@ -8,12 +8,13 @@ import '../controller/payment_status_controller.dart';
 import '../model/subscription_model.dart';
 import 'login_screen.dart';
 import 'delivery_adress_management.dart';
-import 'live_order_track.dart';
 import 'meals_feedback.dart';
 import 'notification_screen.dart';
 import 'help_desk_screen.dart';
-import 'addons_list_screen.dart';
-import 'menu_card_screen.dart';
+import 'addons_list_screen.dart'
+    hide primaryGreen, lightGreen, textPrimary, textSecondary, cardBorder;
+import 'menu_card_screen.dart'
+    hide primaryGreen, lightGreen, textPrimary, textSecondary, cardBorder;
 import 'pause_details_screen.dart';
 import 'widgets/feedback_popup.dart';
 import '../controller/notification_controller.dart';
@@ -201,6 +202,20 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
 
                               if (subscriptionController.user != null)
                                 _buildUserGreeting(subscriptionController),
+
+                              const SizedBox(height: 16),
+
+                              if (subscriptionController.errorMessage != null &&
+                                  !subscriptionController.hasData)
+                                _buildErrorView(subscriptionController),
+
+                              if (subscriptionController.hasData &&
+                                  subscriptionController.subscription == null)
+                                _buildEmptyView(),
+
+                              // Today's Meals Status
+                              if (subscriptionController.todayMeals.isNotEmpty)
+                                _buildTodayMealsStatus(subscriptionController),
 
                               const SizedBox(height: 16),
 
@@ -3174,6 +3189,374 @@ class _SubscriptionDashboardState extends State<SubscriptionDashboard>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
+  }
+
+  /// Build Error View
+  Widget _buildErrorView(SubscriptionController controller) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      margin: const EdgeInsets.symmetric(vertical: 20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFCA5A5)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: Colors.red, size: 48),
+          const SizedBox(height: 16),
+          const Text(
+            'Ops! Something went wrong',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF991B1B),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            controller.errorMessage ?? 'Unknown error occurred',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFFB91C1C)),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _fetchSubscriptionData,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text('Try Again'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build Empty View
+  Widget _buildEmptyView() {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      margin: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(Icons.no_meals_rounded, color: Colors.grey[300], size: 80),
+            const SizedBox(height: 20),
+            Text(
+              'No Active Subscription',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'You don\'t have any active meal plans yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build today's meals status card
+  Widget _buildTodayMealsStatus(SubscriptionController controller) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: lightGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.av_timer_rounded,
+                  color: primaryGreen,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                "Today's Status",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Column(
+            children: controller.todayMeals.map((meal) {
+              return _buildMealStatusItem(meal);
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build status item for a single meal
+  Widget _buildMealStatusItem(TodayMeal meal) {
+    IconData icon;
+    Color color;
+    final bool isOutForDelivery = meal.status.toLowerCase() == 'out_for_delivery';
+    
+    String statusText = meal.status.replaceAll('_', ' ').toUpperCase();
+
+    if (meal.mealType.toLowerCase() == 'breakfast') {
+      icon = Icons.wb_sunny_outlined;
+    } else if (meal.mealType.toLowerCase() == 'lunch') {
+      icon = Icons.lunch_dining_rounded;
+    } else {
+      icon = Icons.nightlight_round_outlined;
+    }
+
+    if (meal.status == 'active' || meal.status == 'delivered') {
+      color = primaryGreen;
+    } else if (meal.status == 'paused' || meal.status == 'pending') {
+      color = Colors.orange;
+    } else if (isOutForDelivery) {
+      color = Colors.blue;
+    } else {
+      color = textSecondary;
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: meal.status == 'not_available'
+            ? Colors.grey[50]
+            : color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: meal.status == 'not_available'
+              ? cardBorder.withOpacity(0.5)
+              : color.withOpacity(0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 20, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      meal.mealType.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: textSecondary,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        statusText,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (meal.mealName != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    meal.mealName!,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                if (meal.deliverySlot != null && meal.status != 'not_available') ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    meal.deliverySlot!,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: textSecondary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (meal.canUnpause && meal.id != null)
+            IconButton(
+              onPressed: () => _unpauseMeal(meal),
+              icon: const Icon(
+                Icons.play_circle_fill_rounded,
+                color: primaryGreen,
+                size: 26,
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Resume Meal',
+            ),
+          if (meal.canPause && meal.id != null)
+            IconButton(
+              onPressed: () => _pauseMeal(meal),
+              icon: const Icon(
+                Icons.pause_circle_filled_rounded,
+                color: Colors.orange,
+                size: 26,
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Pause Meal',
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Unpause a specific meal for today
+  Future<void> _unpauseMeal(TodayMeal meal) async {
+    final authController = context.read<AuthController>();
+    final subscriptionController = context.read<SubscriptionController>();
+
+    if (authController.accessToken == null || meal.id == null) return;
+
+    // Show loading overlay
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => const Center(
+            child: CircularProgressIndicator(color: primaryGreen),
+          ),
+    );
+
+    final success = await subscriptionController.unpauseMeal(
+      authController.accessToken!,
+      meal.id!,
+    );
+
+    if (mounted) {
+      Navigator.pop(context); // Dismiss loading dialog
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Meal resumed successfully')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              subscriptionController.errorMessage ?? 'Failed to resume meal',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Pause a specific meal for today
+  Future<void> _pauseMeal(TodayMeal meal) async {
+    final authController = context.read<AuthController>();
+    final subscriptionController = context.read<SubscriptionController>();
+
+    if (authController.accessToken == null || meal.id == null) return;
+
+    // Confirm pause
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pause Meal?'),
+        content: Text('Are you sure you want to pause your ${meal.mealType}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('Pause'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // Show loading overlay
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => const Center(
+            child: CircularProgressIndicator(color: primaryGreen),
+          ),
+    );
+
+    final success = await subscriptionController.pauseMeal(
+      authController.accessToken!,
+      meal.id!,
+    );
+
+    if (mounted) {
+      Navigator.pop(context); // Dismiss loading dialog
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Meal paused successfully')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              subscriptionController.errorMessage ?? 'Failed to pause meal',
+            ),
+          ),
+        );
+      }
+    }
   }
 }
 

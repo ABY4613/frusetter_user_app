@@ -50,6 +50,10 @@ class ApiConstants {
   static String markNotificationRead(String id) =>
       '/customer/notifications/$id/read';
 
+  // Meal Endpoints
+  static String mealUnpause(String mealId) => '/customer/meals/$mealId/unpause';
+  static String mealPause(String mealId) => '/customer/meals/$mealId/pause';
+
   // Helper method to get full URL
   static String getUrl(String endpoint) => '$apiBaseUrl$endpoint';
 
